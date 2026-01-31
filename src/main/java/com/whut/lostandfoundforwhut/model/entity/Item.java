@@ -40,6 +40,9 @@ public class Item {
 
     private String description;
 
+    @TableField("item_code")
+    private Long itemCode;
+
     @TableField(value = "created_at", fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
 

@@ -2,6 +2,10 @@ package com.whut.lostandfoundforwhut.config;
 
 import com.whut.lostandfoundforwhut.common.utils.security.jwt.JwtAuthenticationFilter;
 import com.whut.lostandfoundforwhut.common.utils.security.jwt.JwtUtil;
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -33,25 +37,24 @@ public class SecurityConfig {
      * @author DXR
      * @date 2026/01/30
      * @description 构建安全过滤链，按开关启用/禁用认证
-     * @param http HttpSecurity 配置对象
+     * @param http                    HttpSecurity 配置对象
      * @param jwtAuthenticationFilter JWT 过滤器
      * @return SecurityFilterChain 过滤链
      * @throws Exception 配置异常
      */
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http, JwtAuthenticationFilter jwtAuthenticationFilter)
+    public SecurityFilterChain securityFilterChain(HttpSecurity http, JwtAuthenticationFilter jwtAuthenticationFilter,
+            @Value("${app.security.enabled:false}") boolean securityEnabled)
             throws Exception {
-        boolean enabled = securityEnabled;
         // 关闭 CSRF，使用无状态会话（JWT）
         http.csrf(AbstractHttpConfigurer::disable);
 
-        if (enabled) {
+        if (securityEnabled) {
             http.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                     .authorizeHttpRequests(auth -> auth
                             .requestMatchers("/api/auth/**").permitAll()
                             .requestMatchers("/error").permitAll()
-                            .anyRequest().authenticated()
-                    )
+                            .anyRequest().authenticated())
                     .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
         } else {
             http.authorizeHttpRequests(auth -> auth.anyRequest().permitAll());
@@ -63,8 +66,9 @@ public class SecurityConfig {
      * @author DXR
      * @date 2026/01/30
      * @description 创建 JWT 认证过滤器
-     * @param jwtUtil JWT 工具
+     * @param jwtUtil            JWT 工具
      * @param userDetailsService 用户详情服务
+     * @param securityEnabled    安全开关
      * @return JwtAuthenticationFilter 过滤器
      */
     @Bean
@@ -76,17 +80,9 @@ public class SecurityConfig {
     /**
      * @author DXR
      * @date 2026/01/30
-     * @description 安全开关（true 启用认证，false 放行全部）
-     */
-    @Value("${app.security.enabled:true}")
-    private boolean securityEnabled;
-
-    /**
-     * @author DXR
-     * @date 2026/01/30
      * @description 构建内存用户（快速开发使用）
-     * @param username 用户名
-     * @param password 密码
+     * @param username        用户名
+     * @param password        密码
      * @param passwordEncoder 密码编码器
      * @return UserDetailsService 服务
      */
