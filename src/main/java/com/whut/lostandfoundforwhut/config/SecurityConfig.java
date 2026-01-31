@@ -2,10 +2,7 @@ package com.whut.lostandfoundforwhut.config;
 
 import com.whut.lostandfoundforwhut.common.utils.security.jwt.JwtAuthenticationFilter;
 import com.whut.lostandfoundforwhut.common.utils.security.jwt.JwtUtil;
-import jakarta.servlet.FilterChain;
-import jakarta.servlet.ServletException;
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
+import jakarta.annotation.Resource;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -15,95 +12,75 @@ import org.springframework.security.config.annotation.method.configuration.Enabl
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
-import org.springframework.security.core.userdetails.User;
-import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.security.provisioning.InMemoryUserDetailsManager;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+
 
 /**
  * @author DXR
  * @date 2026/01/30
- * @description Spring Security 配置，支持 JWT 与开关控制
+ * @description Spring Security 配置，支持 JWT 与开关控制（适配真实业务用户）
  */
 @Configuration
 @EnableMethodSecurity
 public class SecurityConfig {
 
+    // 注入你实际的UserDetailsService（从数据库查用户，替代内存用户）
+    @Resource
+    private UserDetailsService userDetailsService;
+
+    @Resource
+    private JwtUtil jwtUtil;
+
     /**
-     * @author DXR
-     * @date 2026/01/30
-     * @description 构建安全过滤链，按开关启用/禁用认证
-     * @param http                    HttpSecurity 配置对象
-     * @param jwtAuthenticationFilter JWT 过滤器
-     * @return SecurityFilterChain 过滤链
-     * @throws Exception 配置异常
+     * 构建安全过滤链，按开关启用/禁用认证
      */
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http, JwtAuthenticationFilter jwtAuthenticationFilter,
-            @Value("${app.security.enabled:false}") boolean securityEnabled)
+    public SecurityFilterChain securityFilterChain(HttpSecurity http,
+                                                   @Value("${app.security.enabled:false}") boolean securityEnabled)
             throws Exception {
-        // 关闭 CSRF，使用无状态会话（JWT）
+        // 基础配置：关闭CSRF，前后端分离场景必备
         http.csrf(AbstractHttpConfigurer::disable);
 
         if (securityEnabled) {
-            http.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+            // 启用认证时的配置
+            http
+                    // 无状态会话（JWT不需要Session）
+                    .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                    // 权限规则配置（适配你的Controller接口）
                     .authorizeHttpRequests(auth -> auth
-                            .requestMatchers("/api/auth/**").permitAll()
-                            .requestMatchers("/error").permitAll()
+                            // 放行注册/登录接口（无需认证）
+                            .requestMatchers("/api/users").permitAll() // POST /api/users 注册
+                            .requestMatchers("/api/auth/**").permitAll() // 其他认证相关接口
+                            .requestMatchers("/error").permitAll() // 错误页面
+                            .requestMatchers("/swagger-ui/**", "/v3/api-docs/**").permitAll() // 放行Swagger文档
+                            // 其余所有请求都需要认证
                             .anyRequest().authenticated())
-                    .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+                    // 添加JWT过滤器，在用户名密码过滤器之前执行
+                    .addFilterBefore(jwtAuthenticationFilter(), UsernamePasswordAuthenticationFilter.class);
         } else {
+            // 禁用认证时，放行所有请求（方便开发调试）
             http.authorizeHttpRequests(auth -> auth.anyRequest().permitAll());
         }
+
         return http.build();
     }
 
     /**
-     * @author DXR
-     * @date 2026/01/30
-     * @description 创建 JWT 认证过滤器
-     * @param jwtUtil            JWT 工具
-     * @param userDetailsService 用户详情服务
-     * @param securityEnabled    安全开关
-     * @return JwtAuthenticationFilter 过滤器
+     * 创建JWT认证过滤器（适配真实业务的UserDetailsService）
      */
     @Bean
-    public JwtAuthenticationFilter jwtAuthenticationFilter(JwtUtil jwtUtil, UserDetailsService userDetailsService) {
-        // 手动构建过滤器，避免循环依赖
+    public JwtAuthenticationFilter jwtAuthenticationFilter() {
+        // 使用你实际的UserDetailsService（从数据库查用户），而非内存用户
         return new JwtAuthenticationFilter(jwtUtil, userDetailsService);
     }
 
     /**
-     * @author DXR
-     * @date 2026/01/30
-     * @description 构建内存用户（快速开发使用）
-     * @param username        用户名
-     * @param password        密码
-     * @param passwordEncoder 密码编码器
-     * @return UserDetailsService 服务
-     */
-    @Bean
-    public UserDetailsService userDetailsService(
-            @Value("${app.security.default-username}") String username,
-            @Value("${app.security.default-password}") String password,
-            PasswordEncoder passwordEncoder) {
-        UserDetails user = User.builder()
-                .username(username)
-                .password(passwordEncoder.encode(password))
-                .roles("USER")
-                .build();
-        return new InMemoryUserDetailsManager(user);
-    }
-
-    /**
-     * @author DXR
-     * @date 2026/01/30
-     * @description 创建密码编码器（BCrypt）
-     * @return PasswordEncoder 编码器
+     * 密码编码器（BCrypt加密，行业标准）
      */
     @Bean
     public PasswordEncoder passwordEncoder() {
@@ -111,15 +88,27 @@ public class SecurityConfig {
     }
 
     /**
-     * @author DXR
-     * @date 2026/01/30
-     * @description 获取认证管理器
-     * @param configuration 认证配置
-     * @return AuthenticationManager 管理器
-     * @throws Exception 解析异常
+     * 认证管理器（用于登录时的用户名密码认证）
      */
     @Bean
     public AuthenticationManager authenticationManager(AuthenticationConfiguration configuration) throws Exception {
         return configuration.getAuthenticationManager();
+    }
+
+    /**
+     * （可选）覆盖默认的UserDetailsService异常处理（如果需要）
+     * 适配你业务中“用户不存在”的场景
+     */
+    @Bean
+    public UserDetailsService customUserDetailsService() {
+        return username -> {
+            try {
+                // 调用你实际的UserDetailsService实现（从数据库查用户）
+                return userDetailsService.loadUserByUsername(username);
+            } catch (UsernameNotFoundException e) {
+                // 转换为你自定义的异常
+                throw new UsernameNotFoundException("用户不存在：" + username, e);
+            }
+        };
     }
 }
