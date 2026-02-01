@@ -13,6 +13,9 @@ app:
     default-username: admin
     default-password: admin123
     enabled: false # 是否启用安全配置 true:启用 false:不启用
+  upload:
+    image: # 图片上传配置
+      dir: uploads/image
 
 mybatis-plus:
   mapper-locations: classpath*:mapper/**/*.xml
