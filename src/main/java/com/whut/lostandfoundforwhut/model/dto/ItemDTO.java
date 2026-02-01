@@ -1,6 +1,8 @@
 package com.whut.lostandfoundforwhut.model.dto;
 
+import lombok.AllArgsConstructor;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
 
@@ -10,6 +12,8 @@ import java.time.LocalDateTime;
  * @description 通用物品 DTO，用于添加和更新操作
  */
 @Data
+@AllArgsConstructor
+@NoArgsConstructor
 public class ItemDTO {
     private Integer type; // 0-挂失，1-招领
     private LocalDateTime eventTime;

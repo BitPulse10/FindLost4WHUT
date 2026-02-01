@@ -1,4 +1,15 @@
-# 项目说明
+﻿# 项目说明
+
+## 快速开始
+1. 进入环境目录并启动 Docker 依赖：
+```bash
+cd docs/dev-ops/environment
+docker compose -f docker-compose-environment.yml -p environment up -d
+```
+docker-compose会自根据docs\dev-ops\environment\mysql\sql\lost_and_found_init.sql自动创建名为Lost_And_Found的数据库。。。。。.
+2. 本地数据库端口使用 `13307`（MySQL 端口映射）。
+3. 应用启动后即可连接本地数据库。
+
 
 ## 1. 配置文件
 - `src/main/resources/application.yml`：公共配置（应用名、JWT、MyBatis‑Plus、日志、启用环境）
@@ -6,6 +17,7 @@
 - `src/main/resources/application-prod.yml`：生产环境（数据库、Redis、连接池）
 
 当前默认启用：`dev`（在 `application.yml` 中配置 `spring.profiles.active=dev`）。
+
 
 ---
 
@@ -227,3 +239,43 @@ mybatis-plus.mapper-locations=classpath*:mapper/**/*.xml
 ## 10. Swagger / Knife4j
 - OpenAPI JSON：`/v3/api-docs`
 - Knife4j UI：`/doc.html`
+
+---
+
+## 11. 用户接口（User API）
+
+### 11.1 注册
+- `POST /api/users`
+- 请求体（JSON）：
+  - `email`：邮箱（必填）
+  - `password`：密码（必填）
+  - `confirmPassword`：确认密码（必填，必须与 `password` 一致）
+  - `nickname`：昵称（可选）
+- 返回：用户信息 + Token
+
+### 11.2 获取用户信息
+- `GET /api/users/{userId}`
+- Header：`Authorization: Bearer <token>`
+
+### 11.3 修改用户状态
+- `PUT /api/users/{userId}`
+- Header：`Authorization: Bearer <token>`
+- 请求体（JSON）：
+  - `status`：用户状态（可选）
+
+### 11.4 修改密码
+- `PUT /api/users/{userId}/password`
+- Header：`Authorization: Bearer <token>`
+- 请求体（JSON）：
+  - `password`：新密码（必填）
+  - `confirmPassword`：确认密码（必填，必须与 `password` 一致）
+
+### 11.5 修改昵称
+- `PUT /api/users/{userId}/nickname`
+- Header：`Authorization: Bearer <token>`
+- 请求体（JSON）：
+  - `nickname`：昵称（必填）
+
+### 11.6 注销/停用用户
+- `DELETE /api/users/{userId}`
+- Header：`Authorization: Bearer <token>`

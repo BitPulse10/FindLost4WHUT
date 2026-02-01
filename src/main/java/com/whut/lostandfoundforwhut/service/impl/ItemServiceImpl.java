@@ -2,8 +2,9 @@ package com.whut.lostandfoundforwhut.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import com.whut.lostandfoundforwhut.common.constant.Constants;
+import com.whut.lostandfoundforwhut.common.enums.ResponseCode;
 import com.whut.lostandfoundforwhut.common.enums.item.ItemStatus;
+import com.whut.lostandfoundforwhut.common.exception.AppException;
 import com.whut.lostandfoundforwhut.mapper.ItemMapper;
 import com.whut.lostandfoundforwhut.mapper.UserMapper;
 import com.whut.lostandfoundforwhut.model.dto.ItemDTO;
@@ -33,7 +34,7 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
         // 验证用户是否存在
         User user = userMapper.selectById(userId);
         if (user == null) {
-            throw new RuntimeException("用户不存在");
+            throw new AppException(ResponseCode.USER_NOT_FOUND.getCode(), ResponseCode.USER_NOT_FOUND.getInfo());
         }
 
         Item item = new Item();
@@ -58,10 +59,13 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
         // 先查询物品是否存在且属于当前用户
         Item existingItem = itemMapper.selectById(itemId);
         if (existingItem == null) {
-            throw new RuntimeException("物品不存在");
+            throw new AppException(ResponseCode.ITEM_NOT_FOUND.getCode(), ResponseCode.ITEM_NOT_FOUND.getInfo());
         }
         if (!existingItem.getUserId().equals(userId)) {
-            throw new RuntimeException("无权限修改他人发布的物品");
+            throw new AppException(ResponseCode.NO_PERMISSION.getCode(), ResponseCode.NO_PERMISSION.getInfo());
+        }
+        if (ItemStatus.CLOSED.getCode().equals(existingItem.getStatus())) {
+            throw new AppException(ResponseCode.ITEM_STATUS_INVALID.getCode(), ResponseCode.ITEM_STATUS_INVALID.getInfo());
         }
 
         // 更新物品信息
@@ -130,10 +134,10 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
         // 查询物品是否存在且属于当前用户
         Item existingItem = itemMapper.selectById(itemId);
         if (existingItem == null) {
-            throw new RuntimeException("物品不存在");
+            throw new AppException(ResponseCode.ITEM_NOT_FOUND.getCode(), ResponseCode.ITEM_NOT_FOUND.getInfo());
         }
         if (!existingItem.getUserId().equals(userId)) {
-            throw new RuntimeException("无权限下架他人发布的物品");
+            throw new AppException(ResponseCode.NO_PERMISSION.getCode(), ResponseCode.NO_PERMISSION.getInfo());
         }
 
         // 将物品状态设置为CLOSED（1）

@@ -4,14 +4,17 @@ import com.whut.lostandfoundforwhut.common.result.Result;
 import com.whut.lostandfoundforwhut.model.dto.ItemDTO;
 import com.whut.lostandfoundforwhut.model.dto.PageQueryDTO;
 import com.whut.lostandfoundforwhut.model.entity.Item;
-import com.whut.lostandfoundforwhut.model.entity.User;
 import com.whut.lostandfoundforwhut.model.vo.PageResultVO;
 import com.whut.lostandfoundforwhut.service.IItemService;
 import com.whut.lostandfoundforwhut.common.utils.security.jwt.JwtUtil;
 import com.whut.lostandfoundforwhut.common.enums.ResponseCode;
+import com.whut.lostandfoundforwhut.common.exception.AppException;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
+import org.springframework.util.StringUtils;
+import com.whut.lostandfoundforwhut.service.IUserService;
 import org.springframework.web.bind.annotation.*;
 
 /**
@@ -22,48 +25,51 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api/items")
 @RequiredArgsConstructor
-@Tag(name = "物品管理", description = "物品相关操作接口")
+@Tag(name = "物品管理", description = "物品相关接口")
 public class ItemController {
 
     private final IItemService itemService;
     private final JwtUtil jwtUtil;
+    private final IUserService userService;
 
     @PostMapping("/add-item")
     @Operation(summary = "添加物品", description = "添加新的挂失或招领物品")
-    public Result<Item> addItem(@RequestBody ItemDTO itemDTO) {
-        System.out.println("itemDTO: " + itemDTO);
-        // 通过邮箱获取用户ID
-        // Long userId = getUserIdByEmail(email);
-        long userId = 123;
-        // 验证用户是否存在
-        // User user = userMapper.selectById(userId);
-        // if (user == null) {
-        // throw new RuntimeException("用户不存在");
-        // }
+    public Result<Item> addItem(
+            @Parameter(description = "Bearer token", required = false)
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @RequestBody ItemDTO itemDTO) {
+        Long userId = resolveUserId(authorization, itemDTO.getEmail());
         Item item = itemService.addItem(itemDTO, userId);
-
         return Result.success(item);
     }
 
     @PutMapping("/update-item")
     @Operation(summary = "更新物品", description = "通过查询参数更新物品信息")
-    public Result<Item> updateItemByQuery(@RequestParam Long itemId, @RequestBody ItemDTO itemDTO) {
-        long userId = 123; // 临时使用固定用户ID
-        System.out.println("itemDTO: " + itemDTO);
+    public Result<Item> updateItemByQuery(
+            @Parameter(description = "Item ID", required = true)
+            @RequestParam Long itemId,
+            @Parameter(description = "Bearer token", required = true)
+            @RequestHeader(value = "Authorization") String authorization,
+            @RequestBody ItemDTO itemDTO) {
+        Long userId = resolveUserId(authorization, itemDTO.getEmail());
         Item updatedItem = itemService.updateItem(itemId, itemDTO, userId);
         return Result.success(updatedItem);
     }
 
     @PutMapping("/take-down")
     @Operation(summary = "下架物品", description = "通过查询参数下架物品")
-    public Result<Boolean> takeDownItemByQuery(@RequestParam Long itemId) {
-        long userId = 123; // 临时使用固定用户ID
+    public Result<Boolean> takeDownItemByQuery(
+            @Parameter(description = "Item ID", required = true)
+            @RequestParam Long itemId,
+            @Parameter(description = "Bearer token", required = true)
+            @RequestHeader(value = "Authorization") String authorization) {
+        Long userId = resolveUserId(authorization, null);
         boolean success = itemService.takeDownItem(itemId, userId);
         return Result.success(success);
     }
 
     @GetMapping("/filter")
-    @Operation(summary = "筛选物品", description = "支持按类型、状态、关键词筛选，可单独一个条件也可以多个条件组合")
+    @Operation(summary = "筛选物品", description = "按类型、状态或关键字筛选物品")
     public Result<PageResultVO<Item>> filterItems(
             PageQueryDTO pageQueryDTO,
             @RequestParam(required = false) Integer type,
@@ -72,4 +78,21 @@ public class ItemController {
         PageResultVO<Item> result = itemService.filterItems(pageQueryDTO, type, status, keyword);
         return Result.success(result);
     }
+
+    private Long resolveUserId(String authorization, String emailFallback) {
+        String email = null;
+        if (StringUtils.hasText(authorization) && authorization.startsWith("Bearer ")) {
+            String token = authorization.substring(7);
+            email = jwtUtil.getEmail(token);
+        }
+        if (!StringUtils.hasText(email)) {
+            email = emailFallback;
+        }
+        if (!StringUtils.hasText(email)) {
+            throw new AppException(ResponseCode.NOT_LOGIN.getCode(), ResponseCode.NOT_LOGIN.getInfo());
+        }
+        // resolve user id by email via service
+        return userService.getUserIdByEmail(email);
+    }
 }
+
