@@ -13,7 +13,6 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.userdetails.UserDetailsService;
-import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
@@ -29,10 +28,6 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 @EnableMethodSecurity
 public class SecurityConfig {
 
-    // 注入你实际的UserDetailsService（从数据库查用户，替代内存用户）
-    @Resource
-    private UserDetailsService userDetailsService;
-
     @Resource
     private JwtUtil jwtUtil;
 
@@ -41,7 +36,8 @@ public class SecurityConfig {
      */
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http,
-                                                   @Value("${app.security.enabled:false}") boolean securityEnabled)
+                                                   @Value("${app.security.enabled:false}") boolean securityEnabled,
+                                                   JwtAuthenticationFilter jwtAuthenticationFilter)
             throws Exception {
         // 基础配置：关闭CSRF，前后端分离场景必备
         http.csrf(AbstractHttpConfigurer::disable);
@@ -61,7 +57,7 @@ public class SecurityConfig {
                             // 其余所有请求都需要认证
                             .anyRequest().authenticated())
                     // 添加JWT过滤器，在用户名密码过滤器之前执行
-                    .addFilterBefore(jwtAuthenticationFilter(), UsernamePasswordAuthenticationFilter.class);
+                    .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
         } else {
             // 禁用认证时，放行所有请求（方便开发调试）
             http.authorizeHttpRequests(auth -> auth.anyRequest().permitAll());
@@ -74,8 +70,8 @@ public class SecurityConfig {
      * 创建JWT认证过滤器（适配真实业务的UserDetailsService）
      */
     @Bean
-    public JwtAuthenticationFilter jwtAuthenticationFilter() {
-        // 使用你实际的UserDetailsService（从数据库查用户），而非内存用户
+    public JwtAuthenticationFilter jwtAuthenticationFilter(UserDetailsService userDetailsService) {
+        // 使用实际的 UserDetailsService（从数据库查用户），避免配置类依赖业务 Service
         return new JwtAuthenticationFilter(jwtUtil, userDetailsService);
     }
 
@@ -95,20 +91,4 @@ public class SecurityConfig {
         return configuration.getAuthenticationManager();
     }
 
-    /**
-     * （可选）覆盖默认的UserDetailsService异常处理（如果需要）
-     * 适配你业务中“用户不存在”的场景
-     */
-    @Bean
-    public UserDetailsService customUserDetailsService() {
-        return username -> {
-            try {
-                // 调用你实际的UserDetailsService实现（从数据库查用户）
-                return userDetailsService.loadUserByUsername(username);
-            } catch (UsernameNotFoundException e) {
-                // 转换为你自定义的异常
-                throw new UsernameNotFoundException("用户不存在：" + username, e);
-            }
-        };
-    }
 }

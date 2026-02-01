@@ -3,7 +3,6 @@ package com.whut.lostandfoundforwhut.service;
 import com.whut.lostandfoundforwhut.model.dto.UserCreateDTO;
 import com.whut.lostandfoundforwhut.model.dto.UserNicknameUpdateDTO;
 import com.whut.lostandfoundforwhut.model.dto.UserPasswordUpdateDTO;
-import com.whut.lostandfoundforwhut.model.dto.UserUpdateDTO;
 import com.whut.lostandfoundforwhut.model.entity.User;
 
 /**
@@ -43,15 +42,6 @@ public interface IUserService {
      * @param email user email
      */
     void requireUserByEmail(String email);
-
-    /**
-     * update user status
-     *
-     * @param userId user id
-     * @param dto    status update params
-     * @return updated user
-     */
-    User updateUser(Long userId, UserUpdateDTO dto);
 
     /**
      * update user password

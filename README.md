@@ -257,25 +257,19 @@ mybatis-plus.mapper-locations=classpath*:mapper/**/*.xml
 - `GET /api/users/{userId}`
 - Header：`Authorization: Bearer <token>`
 
-### 11.3 修改用户状态
-- `PUT /api/users/{userId}`
-- Header：`Authorization: Bearer <token>`
-- 请求体（JSON）：
-  - `status`：用户状态（可选）
-
-### 11.4 修改密码
+### 11.3 修改密码
 - `PUT /api/users/{userId}/password`
 - Header：`Authorization: Bearer <token>`
 - 请求体（JSON）：
   - `password`：新密码（必填）
   - `confirmPassword`：确认密码（必填，必须与 `password` 一致）
 
-### 11.5 修改昵称
+### 11.4 修改昵称
 - `PUT /api/users/{userId}/nickname`
 - Header：`Authorization: Bearer <token>`
 - 请求体（JSON）：
   - `nickname`：昵称（必填）
 
-### 11.6 注销/停用用户
+### 11.5 注销/停用用户
 - `DELETE /api/users/{userId}`
 - Header：`Authorization: Bearer <token>`
