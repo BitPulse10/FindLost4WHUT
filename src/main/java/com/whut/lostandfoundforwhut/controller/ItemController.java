@@ -99,7 +99,6 @@ public class ItemController {
         }
     }
 
-<<<<<<< HEAD
     @GetMapping("{ItemId}")
     @Operation(summary = "获取物品", description = "通过物品ID获取物品信息")
     public Result<Item> getItemById(
@@ -113,8 +112,6 @@ public class ItemController {
         }
     }
 
-=======
->>>>>>> f4a61032854289ec6d1df9f273ae8456ef58f8d9
     private Long resolveUserIdFromToken(String authorization) {
         if (!StringUtils.hasText(authorization) || !authorization.startsWith("Bearer ")) {
             throw new AppException(ResponseCode.NOT_LOGIN.getCode(), ResponseCode.NOT_LOGIN.getInfo());
