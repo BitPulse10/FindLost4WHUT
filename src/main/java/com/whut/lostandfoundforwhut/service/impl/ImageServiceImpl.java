@@ -17,7 +17,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 @Service
-public class ImageService implements IImageService {
+public class ImageServiceImpl implements IImageService {
 
     @Value("${app.upload.image.dir}")
     private String uploadDir;
@@ -74,16 +74,13 @@ public class ImageService implements IImageService {
         }
 
         try {
-            String originalFilename = file.getOriginalFilename();
-            String extension = originalFilename.substring(originalFilename.lastIndexOf("."));
-            String uniqueFilename = java.util.UUID.randomUUID().toString() + extension;
-
             File uploadDirFile = new File(uploadDir);
             if (!uploadDirFile.exists()) {
                 uploadDirFile.mkdirs();
             }
 
             // 保存图片
+            String uniqueFilename = getUniqueFilename(file);
             File filePath = new File(uploadDirFile, uniqueFilename);
             file.transferTo(filePath.toPath());
 
@@ -96,5 +93,17 @@ public class ImageService implements IImageService {
         } catch (IOException e) {
             throw new AppException(ResponseCode.UN_ERROR.getCode(), "文件上传失败: " + e.getMessage());
         }
+    }
+
+    /**
+     * 生成唯一文件名
+     * @param file 图片文件
+     * @return 唯一文件名
+     */
+    private String getUniqueFilename(MultipartFile file) {
+            String originalFilename = file.getOriginalFilename();
+            String extension = originalFilename.substring(originalFilename.lastIndexOf("."));
+            String uniqueFilename = java.util.UUID.randomUUID().toString() + extension;
+            return uniqueFilename;
     }
 }

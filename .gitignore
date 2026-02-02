@@ -34,3 +34,5 @@ build/
 
 uploads/
 /AGENTS.md
+.env
+uploads/
