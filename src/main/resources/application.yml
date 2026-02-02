@@ -17,18 +17,25 @@ app:
   upload:
     image: # 图片上传配置
       dir: uploads/image
+  vector-store:
+    chroma-url: http://localhost:8000/api/v2
+    collection-name: item_texts
 
 mybatis-plus:
   mapper-locations: classpath*:mapper/**/*.xml
   configuration:
     map-underscore-to-camel-case: true
-    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
   global-config:
     db-config:
       logic-delete-field: is_deleted
       logic-delete-value: 1
       logic-not-delete-value: 0
 
-logging:
-  level:
-    root: info
+# JVM启动参数配置
+server:
+  tomcat:
+    uri-encoding: UTF-8
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 10MB

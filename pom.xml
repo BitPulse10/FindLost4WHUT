@@ -73,11 +73,11 @@
             <artifactId>spring-boot-starter-mail</artifactId>
         </dependency>
 
-        <!-- 1. LangChain4j 核心库：新增排除 slf4j-simple -->
+        <!-- 1. LangChain4j 核心库：更新到兼容版本 -->
         <dependency>
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j</artifactId>
-            <version>0.34.0</version>
+            <version>0.36.0</version>
             <exclusions>
                 <exclusion>
                     <groupId>org.slf4j</groupId>
@@ -86,11 +86,11 @@
             </exclusions>
         </dependency>
 
-        <!-- 2. LangChain4j 对 ChromaDB 的支持：保留排除 -->
+        <!-- 2. LangChain4j 对 ChromaDB 的支持：使用正确的依赖名称 -->
         <dependency>
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j-chroma</artifactId>
-            <version>0.34.0</version>
+            <version>0.36.0</version>
             <exclusions>
                 <exclusion>
                     <groupId>org.slf4j</groupId>

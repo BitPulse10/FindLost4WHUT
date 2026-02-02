@@ -11,16 +11,23 @@ import com.whut.lostandfoundforwhut.mapper.TagMapper;
 import com.whut.lostandfoundforwhut.mapper.UserMapper;
 import com.whut.lostandfoundforwhut.model.dto.ItemDTO;
 import com.whut.lostandfoundforwhut.model.dto.ItemFilter;
+import com.whut.lostandfoundforwhut.model.dto.ItemMetadata;
 import com.whut.lostandfoundforwhut.model.entity.Item;
 import com.whut.lostandfoundforwhut.model.entity.ItemTag;
 import com.whut.lostandfoundforwhut.model.entity.Tag;
 import com.whut.lostandfoundforwhut.model.entity.User;
 import com.whut.lostandfoundforwhut.model.vo.PageResultVO;
 import com.whut.lostandfoundforwhut.service.IItemService;
+import com.whut.lostandfoundforwhut.service.IVectorService;
+import com.whut.lostandfoundforwhut.model.dto.TextEmbeddingDTO;
 import com.whut.lostandfoundforwhut.common.utils.page.PageUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.Arrays;
+import java.util.List;
+import java.util.stream.Collectors;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -38,12 +45,11 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
     private final UserMapper userMapper;
     private final TagMapper tagMapper;
     private final ItemTagMapper itemTagMapper;
+    private final IVectorService vectorService;
 
     @Override
     @Transactional
     public Item addItem(ItemDTO itemDTO, Long userId) {
-        System.out.println("开始添加物品，用户ID：" + userId);
-        // 验证用户是否存在
         User user = userMapper.selectById(userId);
         if (user == null) {
             throw new AppException(ResponseCode.USER_NOT_FOUND.getCode(), ResponseCode.USER_NOT_FOUND.getInfo());
@@ -54,7 +60,6 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
         item.setType(itemDTO.getType());
         item.setEventTime(itemDTO.getEventTime());
         item.setEventPlace(itemDTO.getEventPlace());
-        // 设置默认状态为有效
         item.setStatus(ItemStatus.ACTIVE.getCode());
         item.setDescription(itemDTO.getDescription());
 
@@ -62,6 +67,25 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
         int rowsAffected = itemMapper.insert(item);
         System.out.println("数据库影响行数：" + rowsAffected);
         System.out.println("物品创建成功：" + item);
+
+        // 将物品描述添加到向量数据库
+        try {
+            String itemDescription = item.getDescription();
+            // 创建包含物品状态和标签的元数据对象
+            ItemMetadata itemMetadata = ItemMetadata.builder()
+                    .status(item.getStatus())
+                    .tags(List.of()) // 暂时空标签列表，后续可扩展
+                    .build();
+            TextEmbeddingDTO textEmbeddingDTO = TextEmbeddingDTO.builder()
+                    .id("item_" + item.getId())
+                    .text(itemDescription)
+                    .metadata(itemMetadata)
+                    .build();
+            vectorService.addTextToCollection(textEmbeddingDTO);
+            System.out.println("物品信息已添加到向量数据库，ID：" + item.getId());
+        } catch (Exception e) {
+            System.out.println("添加到向量数据库时发生异常：" + e.getMessage());
+        }
 
         return item;
     }
@@ -100,6 +124,26 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
 
         // 更新数据库
         itemMapper.updateById(existingItem);
+
+        // 更新向量数据库中的物品描述
+        try {
+            String itemDescription = existingItem.getDescription() != null ? existingItem.getDescription() : "未提供描述";
+            vectorService.deleteFromCollection("item_" + itemId);
+            // 创建包含物品状态和标签的元数据对象
+            ItemMetadata itemMetadata = ItemMetadata.builder()
+                    .status(existingItem.getStatus())
+                    .tags(List.of()) // 暂时空标签列表，后续可扩展
+                    .build();
+            TextEmbeddingDTO textEmbeddingDTO = TextEmbeddingDTO.builder()
+                    .id("item_" + existingItem.getId())
+                    .text(itemDescription)
+                    .metadata(itemMetadata)
+                    .build();
+            vectorService.addTextToCollection(textEmbeddingDTO);
+            System.out.println("向量数据库中物品信息已更新，ID：" + existingItem.getId());
+        } catch (Exception e) {
+            System.out.println("更新向量数据库时发生异常：" + e.getMessage());
+        }
 
         return existingItem;
     }
@@ -190,10 +234,57 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
                     ResponseCode.ITEM_STATUS_INVALID.getInfo());
         }
 
-        // 逻辑删除物品
-        int rows = itemMapper.deleteById(itemId);
+        // 更新物品状态为关闭而不是物理删除
+        existingItem.setStatus(ItemStatus.CLOSED.getCode());
+        int rows = itemMapper.updateById(existingItem);
+
+        // 从向量数据库中删除物品描述
+        try {
+            vectorService.deleteFromCollection("item_" + itemId);
+            System.out.println("向量数据库中物品信息已删除，ID：" + itemId);
+        } catch (Exception e) {
+            System.out.println("删除向量数据库条目时发生异常：" + e.getMessage());
+        }
 
         return rows > 0;
     }
 
+    /**
+     * 通过向量搜索查找相似物品
+     * 
+     * @param query        查询文本
+     * @param maxResults   最大返回结果数
+     * @param statusFilter 状态筛选条件
+     * @return 相似物品列表
+     */
+    public List<Item> searchSimilarItems(String query, int maxResults, Integer statusFilter) {
+        // 使用向量数据库搜索相似物品ID
+        List<String> similarItemIds = vectorService.searchInCollectionByStatus(query, maxResults, statusFilter);
+
+        // 提取ID并转换为Long类型
+        List<Long> itemIds = similarItemIds.stream()
+                .filter(id -> id.startsWith("item_"))
+                .map(id -> Long.parseLong(id.substring(5))) // 移除"item_"前缀
+                .collect(Collectors.toList());
+
+        if (itemIds.isEmpty()) {
+            return List.of();
+        }
+
+        // 根据ID列表查询物品信息
+        LambdaQueryWrapper<Item> queryWrapper = new LambdaQueryWrapper<>();
+        queryWrapper.in(Item::getId, itemIds);
+
+        // 如果有状态筛选，添加状态条件
+        if (statusFilter != null) {
+            queryWrapper.eq(Item::getStatus, statusFilter);
+        }
+
+        List<Item> items = itemMapper.selectList(queryWrapper);
+
+        // 按照相似度排序（即按照返回的ID顺序）
+        return items.stream()
+                .sorted((i1, i2) -> Integer.compare(itemIds.indexOf(i1.getId()), itemIds.indexOf(i2.getId())))
+                .collect(Collectors.toList());
+    }
 }

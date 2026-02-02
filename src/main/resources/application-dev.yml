@@ -45,3 +45,13 @@ app:
   mail:
     from: bitpulse@foxmail.com
     test-to: 1754564095@qq.com
+  vector-store:
+    enabled: false
+    collection-name: item_texts
+    chroma-url: http://127.0.0.1:8000
+
+# 阿里云多模态配置
+ai:
+  ali:
+    api-key: "sk-08f879df85a84dfdb8d092289bfbd8ad"
+#

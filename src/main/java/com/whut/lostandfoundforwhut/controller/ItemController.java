@@ -19,6 +19,8 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 
+import java.util.List;
+
 /**
  * @author Qoder
  * @date 2026/01/31
@@ -40,11 +42,10 @@ public class ItemController {
             @Parameter(description = "Bearer token", required = true) @RequestHeader(value = "Authorization") String authorization,
             @RequestBody ItemDTO itemDTO) {
         try {
-            System.out.println("接收到添加物品请求");
             Long userId = resolveUserIdFromToken(authorization);
-            System.out.println("提取到的用户ID：" + userId);
             Item item = itemService.addItem(itemDTO, userId);
             System.out.println("成功创建物品，ID：" + item.getId());
+
             return Result.success(item);
         } catch (Exception e) {
             System.out.println("添加物品时发生异常：" + e.getMessage());
@@ -62,6 +63,7 @@ public class ItemController {
         try {
             Long userId = resolveUserIdFromToken(authorization);
             Item updatedItem = itemService.updateItem(itemId, itemDTO, userId);
+
             return Result.success(updatedItem);
         } catch (Exception e) {
             System.out.println("更新物品时发生异常：" + e.getMessage());
@@ -78,6 +80,7 @@ public class ItemController {
         try {
             Long userId = resolveUserIdFromToken(authorization);
             boolean success = itemService.takeDownItem(itemId, userId);
+
             return Result.success(success);
         } catch (Exception e) {
             System.out.println("下架物品时发生异常：" + e.getMessage());
@@ -99,7 +102,7 @@ public class ItemController {
         }
     }
 
-    @GetMapping("{ItemId}")
+    @GetMapping("/{ItemId}")
     @Operation(summary = "获取物品", description = "通过物品ID获取物品信息")
     public Result<Item> getItemById(
             @Parameter(description = "Item ID", required = true) @PathVariable Long ItemId) {
@@ -107,6 +110,22 @@ public class ItemController {
             return Result.success(itemService.getItemById(ItemId));
         } catch (Exception e) {
             System.out.println("获取物品时发生异常：" + e.getMessage());
+            e.printStackTrace();
+            return Result.fail(ResponseCode.UN_ERROR.getCode(), e.getMessage());
+        }
+    }
+
+    @GetMapping("/search-similar")
+    @Operation(summary = "搜索相似物品", description = "通过向量搜索查找相似的物品")
+    public Result<List<Item>> searchSimilarItems(
+            @Parameter(description = "查询文本", required = true) @RequestParam String query,
+            @Parameter(description = "最大返回结果数", required = false) @RequestParam(defaultValue = "10") int maxResults,
+            @Parameter(description = "状态筛选", required = false) @RequestParam(required = false) Integer statusFilter) {
+        try {
+            List<Item> similarItems = itemService.searchSimilarItems(query, maxResults, statusFilter);
+            return Result.success(similarItems);
+        } catch (Exception e) {
+            System.out.println("搜索相似物品时发生异常：" + e.getMessage());
             e.printStackTrace();
             return Result.fail(ResponseCode.UN_ERROR.getCode(), e.getMessage());
         }

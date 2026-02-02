@@ -68,4 +68,5 @@ public interface IUserService {
      * @return whether success
      */
     boolean deleteUser(Long userId);
+
 }
