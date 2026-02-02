@@ -267,6 +267,27 @@ public Result<PageResultVO<Item>> list(PageQueryDTO query) {
 }
 ```
 
+### 4.5 内容审核工具
+- 位置：`common/utils/cos/ContentReviewer`
+- 方法：
+  - `reviewText(String text)`
+    - 参数：`text` 待审核文本
+    - 功能：审核文本是否包含违规内容
+    - 返回：违规类型字符串（如 `"包含色情内容"`）或 `"审核失败: {message}"`
+
+实例：
+```java
+// 注入 ContentReviewer 实例
+@Autowired
+private ContentReviewer contentReviewer;
+
+// 调用审核方法
+String reviewResult = contentReviewer.reviewText("这是一个包含色情内容的文本");
+if (!reviewResult.isEmpty()) {
+    // 包含违规内容，根据业务逻辑处理
+}
+```
+
 ---
 
 ## 5. Redis 扩展能力（common/utils/bloom）

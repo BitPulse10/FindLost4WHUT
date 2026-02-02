@@ -1,4 +1,7 @@
 spring:
+  config:
+    import:
+      - optional:file:.env[.properties]
   application:
     name: lostAndFoundForWhut
   profiles:
@@ -32,3 +35,10 @@ mybatis-plus:
 logging:
   level:
     root: info
+
+tencent:
+  cos:
+    secret-id: ${TENCENT_COS_SECRET_ID}
+    secret-key: ${TENCENT_COS_SECRET_KEY}
+    bucket-name: ${TENCENT_COS_BUCKET_NAME}
+    region: ${TENCENT_COS_REGION}
