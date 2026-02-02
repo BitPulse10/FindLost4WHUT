@@ -6,7 +6,6 @@ import com.whut.lostandfoundforwhut.common.result.Result;
 import com.whut.lostandfoundforwhut.model.dto.UserRegisterDTO;
 import com.whut.lostandfoundforwhut.model.dto.UserNicknameUpdateDTO;
 import com.whut.lostandfoundforwhut.model.dto.UserPasswordUpdateDTO;
-import com.whut.lostandfoundforwhut.model.dto.UserUpdateDTO;
 import com.whut.lostandfoundforwhut.model.entity.User;
 import com.whut.lostandfoundforwhut.model.vo.UserVO;
 import com.whut.lostandfoundforwhut.service.IAuthService;
@@ -15,6 +14,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -35,8 +35,14 @@ public class UserController {
     private final IUserService userService;
     private final IAuthService authService;
 
+    @Value("${app.security.enabled:false}")
+    private boolean securityEnabled;
+
     // 新增：获取当前登录用户的邮箱（从Security上下文，替代原requireEmail方法）
     private String getCurrentUserEmail() {
+        if (!securityEnabled) {
+            return null;
+        }
         // 从Security上下文获取已认证的用户信息（过滤器已完成Token校验）
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         // 未认证的情况会被过滤器拦截，这里无需额外判断
@@ -60,6 +66,9 @@ public class UserController {
 
     // 新增：校验用户归属权（提取为公共方法，避免重复）
     private void checkUserOwnership(Long userId, String currentUserEmail) {
+        if (!securityEnabled) {
+            return;
+        }
         User target = userService.getUserById(userId);
         if (!currentUserEmail.equals(target.getEmail())) {
             throw new AppException(ResponseCode.NO_PERMISSION.getCode(), ResponseCode.NO_PERMISSION.getInfo());
@@ -118,21 +127,6 @@ public class UserController {
         // 3. 核心业务逻辑
         User target = userService.getUserById(userId);
         return Result.success(UserVO.from(target, null));
-    }
-
-    @PutMapping("/{userId}")
-    @Operation(summary = "Update user status", description = "Update user status by id")
-    public Result<UserVO> updateUser(
-            @Parameter(description = "User id", required = true)
-            @PathVariable Long userId,
-            @RequestBody UserUpdateDTO dto) {
-        // 1. 获取当前登录用户邮箱
-        String currentUserEmail = getCurrentUserEmail();
-        // 2. 校验归属权
-        checkUserOwnership(userId, currentUserEmail);
-        // 3. 核心业务逻辑
-        User updated = userService.updateUser(userId, dto);
-        return Result.success(UserVO.from(updated, null));
     }
 
     @PutMapping("/{userId}/password")

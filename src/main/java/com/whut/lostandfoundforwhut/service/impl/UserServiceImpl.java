@@ -9,7 +9,6 @@ import com.whut.lostandfoundforwhut.mapper.UserMapper;
 import com.whut.lostandfoundforwhut.model.dto.UserCreateDTO;
 import com.whut.lostandfoundforwhut.model.dto.UserNicknameUpdateDTO;
 import com.whut.lostandfoundforwhut.model.dto.UserPasswordUpdateDTO;
-import com.whut.lostandfoundforwhut.model.dto.UserUpdateDTO;
 import com.whut.lostandfoundforwhut.model.entity.User;
 import com.whut.lostandfoundforwhut.service.IUserService;
 import lombok.RequiredArgsConstructor;
@@ -94,22 +93,6 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         if (user == null) {
             throw new AppException(ResponseCode.USER_NOT_FOUND.getCode(), ResponseCode.USER_NOT_FOUND.getInfo());
         }
-    }
-
-    @Override
-    public User updateUser(Long userId, UserUpdateDTO dto) {
-        // query user
-        User user = userMapper.selectById(userId);
-        if (user == null) {
-            throw new AppException(ResponseCode.USER_NOT_FOUND.getCode(), ResponseCode.USER_NOT_FOUND.getInfo());
-        }
-
-        // update status only
-        if (dto != null && dto.getStatus() != null) {
-            user.setStatus(dto.getStatus());
-        }
-        userMapper.updateById(user);
-        return user;
     }
 
     @Override
