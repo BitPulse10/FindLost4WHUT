@@ -1,4 +1,4 @@
-package com.whut.lostandfoundforwhut.middleware.cos;
+package com.whut.lostandfoundforwhut.common.utils.cos;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

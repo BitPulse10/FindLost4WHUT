@@ -1,4 +1,4 @@
-package com.whut.lostandfoundforwhut.middleware.cos;
+package com.whut.lostandfoundforwhut.common.utils.cos;
 
 import com.qcloud.cos.COSClient;
 import com.qcloud.cos.ClientConfig;
