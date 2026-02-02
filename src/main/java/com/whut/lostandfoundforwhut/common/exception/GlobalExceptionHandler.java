@@ -2,6 +2,7 @@ package com.whut.lostandfoundforwhut.common.exception;
 
 import com.whut.lostandfoundforwhut.common.enums.ResponseCode;
 import com.whut.lostandfoundforwhut.common.result.Result;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.validation.BindException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -13,6 +14,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
  * @description 全局异常处理，统一返回结构
  */
 @RestControllerAdvice
+@Slf4j
 public class GlobalExceptionHandler {
 
     /**
@@ -24,6 +26,7 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler(AppException.class)
     public Result<Void> handleAppException(AppException e) {
+        log.error("AppException", e);
         return Result.fail(e.getCode(), e.getInfo());
     }
 
@@ -36,6 +39,7 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler({MethodArgumentNotValidException.class, BindException.class})
     public Result<Void> handleValidation(Exception e) {
+        log.error("Validation exception", e);
         return Result.fail(ResponseCode.ILLEGAL_PARAMETER);
     }
 
@@ -48,6 +52,7 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler(Exception.class)
     public Result<Void> handleException(Exception e) {
+        log.error("Unhandled exception", e);
         return Result.fail(ResponseCode.UN_ERROR);
     }
 }

@@ -16,7 +16,7 @@ app:
   security:
     default-username: admin
     default-password: admin123
-    enabled: false # 是否启用安全配置 true:启用 false:不启用
+    enabled: true # 是否启用安全配置 true:启用 false:不启用
   upload:
     image: # 图片上传配置
       dir: uploads/image
@@ -35,6 +35,9 @@ mybatis-plus:
 logging:
   level:
     root: info
+    org.springdoc: DEBUG
+    com.github.xiaoymin: DEBUG
+    org.springframework.web: INFO
 
 tencent:
   cos:

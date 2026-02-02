@@ -10,6 +10,7 @@ import com.whut.lostandfoundforwhut.mapper.UserMapper;
 import com.whut.lostandfoundforwhut.model.dto.UserCreateDTO;
 import com.whut.lostandfoundforwhut.model.dto.UserLoginDTO;
 import com.whut.lostandfoundforwhut.model.dto.UserRegisterDTO;
+import com.whut.lostandfoundforwhut.model.dto.UserPasswordUpdateByCodeDTO;
 import com.whut.lostandfoundforwhut.model.entity.User;
 import com.whut.lostandfoundforwhut.model.vo.AuthLoginResult;
 import com.whut.lostandfoundforwhut.service.IAuthService;
@@ -41,6 +42,8 @@ public class AuthServiceImpl implements IAuthService {
 
     private static final Duration REGISTER_CODE_TTL = Duration.ofSeconds(90);
     private static final Duration REGISTER_CODE_RATE_TTL = Duration.ofSeconds(60);
+    private static final Duration PASSWORD_RESET_CODE_TTL = Duration.ofSeconds(90);
+    private static final Duration PASSWORD_RESET_CODE_RATE_TTL = Duration.ofSeconds(60);
     private static final Duration LOGIN_FAIL_WINDOW = Duration.ofMinutes(5);
     private static final Duration LOGIN_LOCK_TTL = Duration.ofMinutes(5);
     private static final int LOGIN_MAX_FAILS = 5;
@@ -55,7 +58,7 @@ public class AuthServiceImpl implements IAuthService {
     @Value("${app.mail.from}")
     private String mailFrom;
 
-    @Value("${app.jwt.refresh-expiration-ms:604800000}")
+    @Value("${app.jwt.refresh-expiration-ms}")
     private long refreshExpirationMs;
 
     @Override
@@ -123,7 +126,6 @@ public class AuthServiceImpl implements IAuthService {
             throw new AppException(ResponseCode.USER_EMAIL_CODE_INVALID.getCode(),
                     ResponseCode.USER_EMAIL_CODE_INVALID.getInfo());
         }
-
         // 验证码通过后立即失效
         redisService.remove(codeKey);
 
@@ -192,8 +194,8 @@ public class AuthServiceImpl implements IAuthService {
             throw new AppException(ResponseCode.USER_STATUS_INVALID.getCode(), ResponseCode.USER_STATUS_INVALID.getInfo());
         }
 
-        // 旋转 refresh token
-        redisService.remove(refreshKey);
+        // 刷新时轮换 refresh token
+
         String newRefreshToken = issueRefreshToken(email);
         String token = jwtUtil.generateToken(email);
         return new AuthLoginResult(user, token, newRefreshToken);
@@ -210,7 +212,63 @@ public class AuthServiceImpl implements IAuthService {
             throw new AppException(ResponseCode.USER_REFRESH_TOKEN_INVALID.getCode(),
                     ResponseCode.USER_REFRESH_TOKEN_INVALID.getInfo());
         }
+        String email = cachedEmail.toString();
         redisService.remove(refreshKey);
+        redisService.remove(Constants.RedisKey.REFRESH_TOKEN_BY_EMAIL + email);
+    }
+
+
+    @Override
+    public void sendPasswordResetCode(String email) {
+        if (!StringUtils.hasText(email)) {
+            throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(), ResponseCode.ILLEGAL_PARAMETER.getInfo());
+        }
+        if (!StringUtils.hasText(mailFrom)) {
+            throw new AppException(ResponseCode.MAIL_CONFIG_INVALID.getCode(), ResponseCode.MAIL_CONFIG_INVALID.getInfo());
+        }
+        User existing = userMapper.selectOne(new LambdaQueryWrapper<User>().eq(User::getEmail, email));
+        if (existing == null) {
+            throw new AppException(ResponseCode.USER_NOT_FOUND.getCode(), ResponseCode.USER_NOT_FOUND.getInfo());
+        }
+        String rateKey = Constants.RedisKey.PASSWORD_RESET_CODE_RATE + email;
+        if (Boolean.TRUE.equals(redisService.isExists(rateKey))) {
+            throw new AppException(ResponseCode.USER_PASSWORD_CODE_RATE_LIMIT.getCode(), ResponseCode.USER_PASSWORD_CODE_RATE_LIMIT.getInfo());
+        }
+        String code = String.format("%04d", java.util.concurrent.ThreadLocalRandom.current().nextInt(0, 10000));
+        String codeKey = Constants.RedisKey.PASSWORD_RESET_CODE + email;
+        redisService.setValue(codeKey, code, PASSWORD_RESET_CODE_TTL);
+        redisService.setValue(rateKey, "1", PASSWORD_RESET_CODE_RATE_TTL);
+
+        SimpleMailMessage message = new SimpleMailMessage();
+        message.setFrom(mailFrom);
+        message.setTo(email);
+        message.setSubject(EmailTemplate.passwordResetSubject());
+        message.setText(EmailTemplate.passwordResetBody(code, PASSWORD_RESET_CODE_TTL.getSeconds()));
+        try {
+            mailSender.send(message);
+        } catch (MailException ex) {
+            throw new AppException(ResponseCode.MAIL_SEND_FAILED.getCode(), ResponseCode.MAIL_SEND_FAILED.getInfo(), ex);
+        }
+    }
+
+    @Override
+    public User resetPasswordByCode(String email, UserPasswordUpdateByCodeDTO dto) {
+        if (!StringUtils.hasText(email) || dto == null || !StringUtils.hasText(dto.getPassword()) || !StringUtils.hasText(dto.getConfirmPassword()) || !StringUtils.hasText(dto.getCode())) {
+            throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(), ResponseCode.ILLEGAL_PARAMETER.getInfo());
+        }
+        if (!dto.getPassword().equals(dto.getConfirmPassword())) {
+            throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(), ResponseCode.ILLEGAL_PARAMETER.getInfo());
+        }
+        String codeKey = Constants.RedisKey.PASSWORD_RESET_CODE + email;
+        Object cachedCode = redisService.getValue(codeKey);
+        if (cachedCode == null) {
+            throw new AppException(ResponseCode.USER_PASSWORD_CODE_EXPIRED.getCode(), ResponseCode.USER_PASSWORD_CODE_EXPIRED.getInfo());
+        }
+        if (!cachedCode.toString().equals(dto.getCode())) {
+            throw new AppException(ResponseCode.USER_PASSWORD_CODE_INVALID.getCode(), ResponseCode.USER_PASSWORD_CODE_INVALID.getInfo());
+        }
+        redisService.remove(codeKey);
+        return userService.updatePasswordByEmail(email, dto.getPassword());
     }
 
     private void recordLoginFailure(String email) {
@@ -234,9 +292,15 @@ public class AuthServiceImpl implements IAuthService {
     }
 
     private String issueRefreshToken(String email) {
+        String oldTokenKey = Constants.RedisKey.REFRESH_TOKEN_BY_EMAIL + email;
+        Object oldToken = redisService.getValue(oldTokenKey);
+        if (oldToken != null && StringUtils.hasText(oldToken.toString())) {
+            redisService.remove(Constants.RedisKey.REFRESH_TOKEN + oldToken.toString());
+        }
         String refreshToken = UUID.randomUUID().toString().replace("-", "");
         String refreshKey = Constants.RedisKey.REFRESH_TOKEN + refreshToken;
         redisService.setValue(refreshKey, email, Duration.ofMillis(refreshExpirationMs));
+        redisService.setValue(oldTokenKey, refreshToken, Duration.ofMillis(refreshExpirationMs));
         return refreshToken;
     }
 }

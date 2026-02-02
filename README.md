@@ -1,4 +1,4 @@
-﻿# 项目说明
+# 项目说明
 
 ## 快速开始
 1. 进入环境目录并启动 Docker 依赖：
@@ -141,7 +141,7 @@ String loginEmail = jwtUtil.getEmail(token);
   - `MAIL_002`：邮件发送失败
 
 ### 注册
-`POST /api/auth/register`（等价于 `POST /api/users`）
+`POST /api/auth/register`
 - 入参：
   - `email`
   - `password`
@@ -176,7 +176,6 @@ String loginEmail = jwtUtil.getEmail(token);
 前端只需要保存 token/refreshToken，无需传 userId。
 
 - `GET /api/users/me` 获取当前用户信息  
-- `PUT /api/users/me/password` 修改当前用户密码  
 - `PUT /api/users/me/nickname` 修改当前用户昵称  
 - `DELETE /api/users/me` 注销当前用户
 
@@ -367,34 +366,15 @@ mybatis-plus.mapper-locations=classpath*:mapper/**/*.xml
 
 ---
 
-## 11. 用户接口（User API）
 
-### 11.1 注册
-- `POST /api/users`
-- 请求体（JSON）：
-  - `email`：邮箱（必填）
-  - `password`：密码（必填）
-  - `confirmPassword`：确认密码（必填，必须与 `password` 一致）
-  - `nickname`：昵称（可选）
-- 返回：用户信息 + Token
+## 找回密码
 
-### 11.2 获取用户信息
-- `GET /api/users/{userId}`
-- Header：`Authorization: Bearer <token>`
+### 发送找回密码验证码
+`POST /api/auth/password/code`
+- 入参：`email`
+- 说明：验证码有效期 90 秒，同一邮箱 60 秒内仅允许发送一次
 
-### 11.3 修改密码
-- `PUT /api/users/{userId}/password`
-- Header：`Authorization: Bearer <token>`
-- 请求体（JSON）：
-  - `password`：新密码（必填）
-  - `confirmPassword`：确认密码（必填，必须与 `password` 一致）
-
-### 11.4 修改昵称
-- `PUT /api/users/{userId}/nickname`
-- Header：`Authorization: Bearer <token>`
-- 请求体（JSON）：
-  - `nickname`：昵称（必填）
-
-### 11.5 注销/停用用户
-- `DELETE /api/users/{userId}`
-- Header：`Authorization: Bearer <token>`
+### 重置密码
+`POST /api/auth/password/reset`
+- 入参：`email`、`password`、`confirmPassword`、`code`
+- 说明：验证码校验通过后修改密码

@@ -32,5 +32,7 @@ build/
 ### VS Code ###
 .vscode/
 
+uploads/
+/AGENTS.md
 .env
 uploads/
