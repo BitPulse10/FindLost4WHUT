@@ -17,7 +17,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 @Service
-public class ImageService implements IImageService {
+public class ImageServiceImpl implements IImageService {
 
     @Value("${app.upload.image.dir}")
     private String uploadDir;
