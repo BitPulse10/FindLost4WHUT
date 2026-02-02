@@ -4,6 +4,7 @@ import com.whut.lostandfoundforwhut.model.dto.UserRegisterDTO;
 import com.whut.lostandfoundforwhut.model.entity.User;
 import com.whut.lostandfoundforwhut.model.dto.UserLoginDTO;
 import com.whut.lostandfoundforwhut.model.vo.AuthLoginResult;
+import com.whut.lostandfoundforwhut.model.dto.UserPasswordUpdateByCodeDTO;
 
 /**
  * @author DXR
@@ -19,7 +20,7 @@ public interface IAuthService {
     void sendRegisterCode(String email);
 
     /**
-     * 注册用户（需验证邮箱验证码）
+     * 注册用户（邮箱验证码校验）
      * @param dto 注册参数
      * @return 创建后的用户
      */
@@ -44,4 +45,18 @@ public interface IAuthService {
      * @param refreshToken refresh token
      */
     void logout(String refreshToken);
+
+    /**
+     * 发送找回密码验证码（4位）
+     * @param email 邮箱
+     */
+    void sendPasswordResetCode(String email);
+
+    /**
+     * 通过验证码重置密码
+     * @param email 邮箱
+     * @param dto 重置参数
+     * @return 更新后的用户
+     */
+    User resetPasswordByCode(String email, UserPasswordUpdateByCodeDTO dto);
 }

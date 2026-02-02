@@ -31,6 +31,9 @@ public enum ResponseCode {
     USER_PASSWORD_ERROR("USR_007", "Email or password error"),
     USER_LOGIN_LOCKED("USR_008", "Too many failed attempts, try again in 5 minutes"),
     USER_REFRESH_TOKEN_INVALID("USR_009", "Refresh token invalid"),
+    USER_PASSWORD_CODE_INVALID("USR_010", "Password reset code invalid"),
+    USER_PASSWORD_CODE_EXPIRED("USR_011", "Password reset code expired"),
+    USER_PASSWORD_CODE_RATE_LIMIT("USR_012", "Password reset code sent too frequently"),
 
     MAIL_CONFIG_INVALID("MAIL_001", "邮箱配置无效"),
     MAIL_SEND_FAILED("MAIL_002", "邮件发送失败"),

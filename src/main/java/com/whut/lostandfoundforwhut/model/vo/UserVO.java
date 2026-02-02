@@ -22,9 +22,9 @@ public class UserVO {
     private String token;
     /** Token 过期时间（毫秒） */
     private Long expiresIn;
-    /** Refresh Token???? */
+    /** Refresh Token（可空） */
     private String refreshToken;
-    /** Refresh Token ???????? */
+    /** Refresh Token 过期时间（毫秒） */
     private Long refreshExpiresIn;
 
     /**
