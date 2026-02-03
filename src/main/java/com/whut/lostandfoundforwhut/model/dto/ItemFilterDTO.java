@@ -7,10 +7,16 @@ import lombok.NoArgsConstructor;
 import java.time.LocalDateTime;
 import java.util.List;
 
+/**
+ * 物品筛选DTO
+ * 
+ * @author Qoder
+ * @date 2026/02/03
+ */
 @Data
 @AllArgsConstructor
 @NoArgsConstructor
-public class ItemFilter {
+public class ItemFilterDTO {
 
     // 分页参数
     private Integer pageNo = 1;

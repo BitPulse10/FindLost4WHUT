@@ -20,9 +20,6 @@ app:
   upload:
     image: # 图片上传配置
       dir: uploads/image
-  vector-store:
-    chroma-url: http://localhost:8000/api/v2
-    collection-name: item_texts
 
 mybatis-plus:
   mapper-locations: classpath*:mapper/**/*.xml

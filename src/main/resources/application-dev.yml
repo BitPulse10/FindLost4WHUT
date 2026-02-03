@@ -4,7 +4,7 @@ spring:
       on-profile: dev
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://127.0.0.1:13307/Lost_And_Find?useUnicode=true&characterEncoding=utf8&autoReconnect=true&zeroDateTimeBehavior=convertToNull&serverTimezone=Asia/Shanghai&useSSL=false
+    url: jdbc:mysql://127.0.0.1:13307/Lost_And_Find?useUnicode=true&characterEncoding=utf8&autoReconnect=true&zeroDateTimeBehavior=convertToNull&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
     username: root
     password: 123456
     type: com.zaxxer.hikari.HikariDataSource
@@ -46,7 +46,7 @@ app:
     from: bitpulse@foxmail.com
     test-to: 1754564095@qq.com
   vector-store:
-    enabled: false
+    enabled: true
     collection-name: item_texts
     chroma-url: http://127.0.0.1:8000
 

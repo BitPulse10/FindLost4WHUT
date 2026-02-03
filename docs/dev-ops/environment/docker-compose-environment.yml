@@ -16,7 +16,7 @@ services:
       - ./mysql/sql:/docker-entrypoint-initdb.d
       - mysql_data:/var/lib/mysql
     healthcheck:
-      test: [ "CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}" ]
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
       interval: 5s
       timeout: 10s
       retries: 10
@@ -29,7 +29,6 @@ services:
           cpus: '1'
           memory: 1G
 
-  # Redis
   redis:
     image: redis:6.2
     container_name: lostAndFoundForWhut-redis
@@ -47,7 +46,7 @@ services:
     networks:
       - my-network
     healthcheck:
-      test: [ "CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping" ]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -58,7 +57,6 @@ services:
           cpus: '0.5'
           memory: 512M
 
-  # RedisAdmin https://github.com/joeferner/redis-commander
   redis-admin:
     image: spryker/redis-commander:0.8.0
     container_name: lostAndFoundForWhut-redis-admin
@@ -85,10 +83,40 @@ services:
           cpus: '0.2'
           memory: 256M
 
+  chromadb:
+    image: chromadb/chroma:0.4.24
+    container_name: lostAndFoundForWhut-chromadb
+    restart: always
+    hostname: chromadb
+    ports:
+      - "127.0.0.1:${CHROMADB_PORT:-8000}:8000"
+    volumes:
+      - chroma_data:/chroma/chroma
+    environment:
+      - TZ=${TZ}
+      - ALLOW_RESET=TRUE
+      - ANONYMIZED_TELEMETRY=FALSE
+      - IS_PERSISTENT=TRUE
+    networks:
+      - my-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/heartbeat"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
 volumes:
   mysql_data:
     driver: local
   redis_data:
+    driver: local
+  chroma_data:
     driver: local
 
 networks:
