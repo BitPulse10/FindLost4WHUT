@@ -18,7 +18,6 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
-
 /**
  * @author DXR
  * @date 2026/01/30
@@ -36,8 +35,8 @@ public class SecurityConfig {
      */
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http,
-                                                   @Value("${app.security.enabled:false}") boolean securityEnabled,
-                                                   JwtAuthenticationFilter jwtAuthenticationFilter)
+            @Value("${app.security.enabled:false}") boolean securityEnabled,
+            JwtAuthenticationFilter jwtAuthenticationFilter)
             throws Exception {
         // 基础配置：关闭CSRF，前后端分离场景必备
         http.csrf(AbstractHttpConfigurer::disable);

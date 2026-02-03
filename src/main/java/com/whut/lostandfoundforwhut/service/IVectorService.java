@@ -48,14 +48,4 @@ public interface IVectorService {
      * 清空整个集合
      */
     void clearCollection();
-
-    /**
-     * 根据查询文本和状态筛选搜索相似文本
-     *
-     * @param query        查询文本
-     * @param k            返回最相近的k个结果
-     * @param statusFilter 状态筛选条件（例如：ACTIVE=0, CLOSED=1）
-     * @return 匹配的ID列表
-     */
-    List<String> searchInCollectionByStatus(String query, int k, Integer statusFilter);
 }
