@@ -46,6 +46,19 @@ public class ImageValidator {
     }
 
     /**
+     * 验证图片大小
+     * @param file 上传的文件
+     * @param maxSize 最大图片大小限制（字节）
+     * @return 错误信息，如果验证通过则返回 null
+     */
+    public static String validateImageSize(MultipartFile file, long maxSize) {
+        if (file.getSize() > maxSize) {
+            return "图片大小不能超过" + (maxSize / (1024 * 1024)) + "MB";
+        }
+        return null;
+    }
+
+    /**
      * 获取允许的图片扩展名列表
      * @return 扩展名列表
      */
