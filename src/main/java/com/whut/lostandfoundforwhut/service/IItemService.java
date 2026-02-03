@@ -4,7 +4,6 @@ import com.whut.lostandfoundforwhut.model.dto.ItemDTO;
 import com.whut.lostandfoundforwhut.model.dto.ItemFilterDTO;
 import com.whut.lostandfoundforwhut.model.entity.Item;
 import com.whut.lostandfoundforwhut.model.vo.PageResultVO;
-
 import java.util.List;
 
 /**
@@ -56,4 +55,14 @@ public interface IItemService {
      * @return 是否下架成功
      */
     boolean takeDownItem(Long itemId, Long userId);
+
+    /***
+     * 根据状态筛选物品
+     * 
+     * @param itemIds 物品ID列表
+     * @param status  状态
+     * @return 符合状态的物品列表
+     */
+    List<Item> filterItemsByStatus(List<Long> itemIds, String status);
+
 }

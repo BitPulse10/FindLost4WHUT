@@ -26,6 +26,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -298,5 +299,25 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
             log.error("删除向量数据库条目时发生异常，物品ID：{}", itemId, e);
             // 这里不抛出异常，因为向量数据库的失败不应影响主业务流程
         }
+    }
+
+    @Override
+    public List<Item> filterItemsByStatus(List<Long> itemIds, String status) {
+        if (itemIds == null || itemIds.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        // 构建查询条件，只查询指定ID列表中符合状态的物品
+        LambdaQueryWrapper<Item> queryWrapper = new LambdaQueryWrapper<>();
+        queryWrapper.in(Item::getId, itemIds)
+                .eq(Item::getStatus, status);
+
+        // 执行查询
+        List<Item> filteredItems = itemMapper.selectList(queryWrapper);
+
+        log.info("根据状态筛选物品完成，输入ID数量：{}，筛选结果数量：{}，状态：{}",
+                itemIds.size(), filteredItems.size(), status);
+
+        return filteredItems;
     }
 }
