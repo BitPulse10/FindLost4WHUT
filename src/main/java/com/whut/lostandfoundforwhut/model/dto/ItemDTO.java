@@ -20,4 +20,8 @@ public class ItemDTO {
     private String eventPlace;
     private Integer status; // 0-有效，1-结束
     private String description;
+    /**
+     * 标签文本，使用 # 分隔
+     */
+    private String tagText;
 }

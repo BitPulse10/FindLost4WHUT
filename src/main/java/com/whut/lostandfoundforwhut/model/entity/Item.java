@@ -9,6 +9,7 @@ import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * @author DXR
@@ -45,4 +46,10 @@ public class Item {
 
     @TableField(value = "updated_at", fill = FieldFill.INSERT_UPDATE)
     private LocalDateTime updatedAt;
+
+    /**
+     * 标签名称列表，仅用于响应展示
+     */
+    @TableField(exist = false)
+    private List<String> tags;
 }

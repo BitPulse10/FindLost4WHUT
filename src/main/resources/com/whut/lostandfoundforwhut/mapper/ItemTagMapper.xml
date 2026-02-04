@@ -7,4 +7,16 @@
         <result column="item_id" property="itemId"/>
         <result column="tag_id" property="tagId"/>
     </resultMap>
+
+    <delete id="deleteByItemId">
+        DELETE FROM item_tags WHERE item_id = #{itemId}
+    </delete>
+
+    <insert id="insertBatch">
+        INSERT INTO item_tags (item_id, tag_id)
+        VALUES
+        <foreach collection="items" item="item" separator=",">
+            (#{item.itemId}, #{item.tagId})
+        </foreach>
+    </insert>
 </mapper>

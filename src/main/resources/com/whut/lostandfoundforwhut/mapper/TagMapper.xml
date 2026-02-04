@@ -7,4 +7,23 @@
         <id column="id" property="id"/>
         <result column="name" property="name"/>
     </resultMap>
+
+    <select id="selectNamesByItemId" resultType="java.lang.String">
+        SELECT t.name
+        FROM tags t
+        INNER JOIN item_tags it ON t.id = it.tag_id
+        WHERE it.item_id = #{itemId}
+        ORDER BY t.id
+    </select>
+
+    <select id="selectNamesByItemIds" resultType="com.whut.lostandfoundforwhut.model.dto.ItemTagNameDTO">
+        SELECT it.item_id AS itemId, t.name AS name
+        FROM item_tags it
+        INNER JOIN tags t ON t.id = it.tag_id
+        WHERE it.item_id IN
+        <foreach collection="itemIds" item="itemId" open="(" separator="," close=")">
+            #{itemId}
+        </foreach>
+        ORDER BY it.item_id, t.id
+    </select>
 </mapper>

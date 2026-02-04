@@ -12,12 +12,14 @@ import com.whut.lostandfoundforwhut.mapper.TagMapper;
 import com.whut.lostandfoundforwhut.mapper.UserMapper;
 import com.whut.lostandfoundforwhut.model.dto.ItemDTO;
 import com.whut.lostandfoundforwhut.model.dto.ItemFilterDTO;
+import com.whut.lostandfoundforwhut.model.dto.ItemTagNameDTO;
 import com.whut.lostandfoundforwhut.model.entity.Item;
 import com.whut.lostandfoundforwhut.model.entity.ItemTag;
 import com.whut.lostandfoundforwhut.model.entity.Tag;
 import com.whut.lostandfoundforwhut.model.entity.User;
 import com.whut.lostandfoundforwhut.model.vo.PageResultVO;
 import com.whut.lostandfoundforwhut.service.IItemService;
+import com.whut.lostandfoundforwhut.service.ITagService;
 import com.whut.lostandfoundforwhut.service.IVectorService;
 import com.whut.lostandfoundforwhut.common.utils.page.PageUtils;
 import lombok.RequiredArgsConstructor;
@@ -26,7 +28,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -44,6 +48,7 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
     private final TagMapper tagMapper;
     private final ItemTagMapper itemTagMapper;
     private final ItemImageMapper itemImageMapper;
+    private final ITagService tagService;
     private final IVectorService vectorService;
 
     @Override
@@ -73,6 +78,10 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
         // 将物品描述添加到向量数据库
         // addToVectorDatabaseImage(item, imageUrls);
         vectorService.addToVectorDatabase(item);
+        // 解析并绑定标签
+        List<String> tagNames = tagService.parseTagText(itemDTO.getTagText());
+        tagService.replaceTagsForItem(item.getId(), tagNames);
+        item.setTags(tagService.getTagNamesByItemId(item.getId()));
 
         return item;
     }
@@ -114,6 +123,12 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
 
         // 更新向量数据库中的物品描述
         vectorService.updateVectorDatabase(existingItem);
+        // 仅在传入 tagText 时更新标签
+        if (itemDTO.getTagText() != null) {
+            List<String> tagNames = tagService.parseTagText(itemDTO.getTagText());
+            tagService.replaceTagsForItem(itemId, tagNames);
+        }
+        existingItem.setTags(tagService.getTagNamesByItemId(itemId));
 
         return existingItem;
     }
@@ -130,6 +145,7 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
             throw new AppException(ResponseCode.ITEM_NOT_FOUND.getCode(), ResponseCode.ITEM_NOT_FOUND.getInfo());
         }
 
+        item.setTags(tagService.getTagNamesByItemId(itemId));
         return item;
     }
 
@@ -207,6 +223,22 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
         itemMapper.selectPage(page, queryWrapper);
 
         // 封装分页结果
+        List<Item> records = page.getRecords();
+        if (records != null && !records.isEmpty()) {
+            List<Long> itemIds = records.stream()
+                    .map(Item::getId)
+                    .distinct()
+                    .toList();
+            List<ItemTagNameDTO> mappings = tagMapper.selectNamesByItemIds(itemIds);
+            Map<Long, List<String>> tagMap = new HashMap<>();
+            for (ItemTagNameDTO mapping : mappings) {
+                tagMap.computeIfAbsent(mapping.getItemId(), key -> new ArrayList<>())
+                        .add(mapping.getName());
+            }
+            for (Item item : records) {
+                item.setTags(tagMap.getOrDefault(item.getId(), new ArrayList<>()));
+            }
+        }
         return PageUtils.toPageResult(page);
     }
 
