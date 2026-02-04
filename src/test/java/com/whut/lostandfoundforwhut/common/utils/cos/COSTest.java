@@ -19,7 +19,7 @@ public class COSTest {
     @BeforeEach
     public void setUp() {
         // 指向测试图片文件
-        testFile = new File(testDir + "test.png");
+        testFile = new File(testDir, "test.png");
     }
 
     @Test
@@ -36,7 +36,7 @@ public class COSTest {
     @Test
     public void testDownloadFile() {
         // 创建下载目标文件
-        File downloadFile = new File(testDir + "downloaded-test.png");
+        File downloadFile = new File(testDir, "downloaded-test.png");
         // downloadFile.deleteOnExit();
         
         // 调用下载方法

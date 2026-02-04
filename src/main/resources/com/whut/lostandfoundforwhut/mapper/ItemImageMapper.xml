@@ -21,4 +21,13 @@
         JOIN item_images ii ON i.id = ii.image_id
         WHERE ii.item_id = #{itemId}
     </select>
+    
+    <!-- 批量插入物品-图片关联 -->
+    <insert id="insertItemImages" parameterType="map">
+        INSERT INTO item_images (item_id, image_id)
+        VALUES
+        <foreach collection="imageIds" item="imageId" separator=",">
+            (#{itemId}, #{imageId})
+        </foreach>
+    </insert>
 </mapper>
