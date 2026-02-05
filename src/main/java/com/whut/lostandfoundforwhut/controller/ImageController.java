@@ -19,6 +19,7 @@ public class ImageController {
     @Autowired
     private IImageService imageService;
 
+    /*
     @PostMapping("/upload")
     public Result<Image> upload(@RequestParam("file") MultipartFile file) {
         try {
@@ -40,6 +41,27 @@ public class ImageController {
             return Result.fail(e.getCode(), e.getMessage());
         } catch (Exception e) {
             return Result.fail(ResponseCode.UN_ERROR.getCode(), e.getMessage());
+        }
+    }
+    */
+
+    /**
+     * @description 上传多张图片并关联到物品，上传失败时会回滚物品的创建
+     * @param itemId 物品ID
+     * @param files 图片文件列表
+     * @return 图片实体列表
+     */
+    @PostMapping("/upload/item/{itemId}")
+    public Result<List<Image>> uploadMultiple(
+        @PathVariable("itemId") Long itemId,
+        @RequestParam("files") List<MultipartFile> files
+    ) {
+        try {
+            List<Image> images = imageService.uploadAndAddItemImages(itemId, files);
+            return Result.success(images);
+        } catch (Exception e) {
+            String code = e instanceof AppException ? ((AppException) e).getCode() : ResponseCode.UN_ERROR.getCode();
+            return Result.fail(code, e.getMessage());
         }
     }
 

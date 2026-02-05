@@ -6,6 +6,8 @@ import com.whut.lostandfoundforwhut.common.utils.cos.COS;
 import com.whut.lostandfoundforwhut.common.utils.cos.ContentReviewer;
 import com.whut.lostandfoundforwhut.common.utils.image.ImageValidator;
 import com.whut.lostandfoundforwhut.mapper.ImageMapper;
+import com.whut.lostandfoundforwhut.mapper.ItemImageMapper;
+import com.whut.lostandfoundforwhut.mapper.ItemMapper;
 import com.whut.lostandfoundforwhut.model.entity.Image;
 import com.whut.lostandfoundforwhut.service.IImageService;
 
@@ -24,7 +26,9 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
+import lombok.extern.slf4j.Slf4j;
 
+@Slf4j
 @Service
 public class ImageServiceImpl extends ServiceImpl<ImageMapper, Image> implements IImageService {
     // 图片上传目录
@@ -42,7 +46,10 @@ public class ImageServiceImpl extends ServiceImpl<ImageMapper, Image> implements
     // 自动注入内容审核器
     @Autowired
     private ContentReviewer contentReviewer;
-    // 自动注入图片映射器
+    @Autowired
+    private ItemImageMapper itemImageMapper;
+    @Autowired
+    private ItemMapper itemMapper;
     @Autowired
     private ImageMapper imageMapper;
 
@@ -56,6 +63,7 @@ public class ImageServiceImpl extends ServiceImpl<ImageMapper, Image> implements
      * @param file 图片文件
      * @return 图片实体
      */
+    /*
     @Override
     public Image uploadImage(MultipartFile file) {
         // 验证文件
@@ -99,13 +107,48 @@ public class ImageServiceImpl extends ServiceImpl<ImageMapper, Image> implements
             }
         }
     }
+    */
 
     /**
-     * @description 上传多张图片到COS
+     * 上传并添加物品图片
+     * @param itemId 物品ID
      * @param files 图片文件列表
      * @return 图片实体列表
      */
-    @Override
+    public List<Image> uploadAndAddItemImages(Long itemId, List<MultipartFile> files) {
+        try {
+            // 上传图片
+            List<Image> images = uploadImages(files);
+            if (images.isEmpty()) { return new ArrayList<>(); }
+            // 保存图片关联到物品
+            List<Long> imageIds = images.stream().map(Image::getId).collect(Collectors.toList());
+            boolean success = itemImageMapper.insertItemImages(itemId, imageIds);
+            // 检查关联是否成功
+            if (!success) {
+                throw new AppException(ResponseCode.UN_ERROR.getCode(), "图片失败");
+            }
+            return images;
+        } catch (Exception e) {
+            // 执行物理删除物品（绕过逻辑删除）
+            try {
+                int rowsAffected = itemMapper.deletePhysicalById(itemId);
+                log.info("删除物品，itemId: {}, 受影响行数: {}", itemId, rowsAffected);
+            } catch (Exception ex) {
+                log.error("删除物品失败: {}", ex.getMessage());
+            }
+            // 处理异常
+            if (e instanceof AppException) {
+                throw (AppException) e;
+            }
+            throw new AppException(ResponseCode.UN_ERROR.getCode(), "上传图片失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * @description 上传并添加物品图片
+     * @param files 图片文件列表
+     * @return 图片实体列表
+     */
     public List<Image> uploadImages(List<MultipartFile> files) {
         for (MultipartFile file : files) {
             if (file == null || file.isEmpty()) { continue; }

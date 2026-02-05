@@ -15,14 +15,22 @@ public interface IImageService {
      * @param file 图片文件
      * @return 图片上传响应DTO
      */
-    Image uploadImage(MultipartFile file);
+    // Image uploadImage(MultipartFile file);
 
     /**
      * 上传多个图片
      * @param files 图片文件列表
      * @return 图片上传响应DTO列表
      */
-    List<Image> uploadImages(List<MultipartFile> files);
+    // List<Image> uploadImages(List<MultipartFile> files);
+
+    /**
+     * 上传并添加物品图片
+     * @param itemId 物品ID
+     * @param files 图片文件列表
+     * @return 图片实体列表
+     */
+    List<Image> uploadAndAddItemImages(Long itemId, List<MultipartFile> files);
 
     /**
      * 根据 ID 查询图片

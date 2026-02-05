@@ -15,4 +15,9 @@
         <result column="created_at" property="createdAt"/>
         <result column="updated_at" property="updatedAt"/>
     </resultMap>
+    
+    <!-- 物理删除物品（绕过逻辑删除） -->
+    <delete id="deletePhysicalById" parameterType="java.lang.Long">
+        DELETE FROM items WHERE id = #{id}
+    </delete>
 </mapper>
