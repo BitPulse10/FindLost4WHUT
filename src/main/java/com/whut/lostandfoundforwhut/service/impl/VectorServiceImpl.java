@@ -1,15 +1,23 @@
 package com.whut.lostandfoundforwhut.service.impl;
 
+import com.alibaba.dashscope.embeddings.MultiModalEmbeddingParam;
+import com.alibaba.dashscope.embeddings.MultiModalEmbedding;
+import com.alibaba.dashscope.embeddings.MultiModalEmbeddingResult;
+import com.alibaba.dashscope.embeddings.MultiModalEmbeddingItemBase;
+import com.alibaba.dashscope.embeddings.MultiModalEmbeddingItemText;
+import com.alibaba.dashscope.embeddings.MultiModalEmbeddingItemImage;
 import com.alibaba.dashscope.embeddings.TextEmbedding;
 import com.alibaba.dashscope.embeddings.TextEmbeddingParam;
 import com.alibaba.dashscope.embeddings.TextEmbeddingResult;
 import com.alibaba.dashscope.embeddings.TextEmbeddingResultItem;
+import com.alibaba.dashscope.exception.NoApiKeyException;
+import com.alibaba.dashscope.exception.UploadFileException;
 import com.whut.lostandfoundforwhut.service.IVectorService;
 import dev.langchain4j.data.embedding.Embedding;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.store.embedding.EmbeddingMatch;
 import dev.langchain4j.store.embedding.chroma.ChromaEmbeddingStore;
-import dev.langchain4j.store.embedding.inmemory.InMemoryEmbeddingStore;
+
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -21,13 +29,29 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Arrays;
 import java.util.Base64;
+import java.util.Map;
+import java.util.HashMap;
 import java.util.stream.Collectors;
+
+import java.net.URL;
+import java.net.HttpURLConnection;
+import java.io.InputStream;
 
 import com.whut.lostandfoundforwhut.model.dto.TextEmbeddingDTO;
 import com.whut.lostandfoundforwhut.model.entity.Item;
 
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.net.URI;
+import java.time.Duration;
+import com.google.gson.Gson;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+
 /**
- * 向量数据库服务实现 - 支持ChromaDB和内存存储两种模式
+ * 向量数据库服务实现 - 仅支持ChromaDB存储
  */
 @Slf4j
 @Service
@@ -45,9 +69,13 @@ public class VectorServiceImpl implements IVectorService {
     @Value("${ai.ali.api-key:}")
     private String dashScopeApiKey;
 
-    private Object embeddingStore; // 使用 Object 类型以支持多种存储类型
-    private boolean useChroma = true; // 标记是否使用 ChromaDB
+    private ChromaEmbeddingStore embeddingStore;
     private boolean initialized = false; // 标记是否已初始化
+
+    private final HttpClient httpClient = HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(30))
+            .build();
+    private final Gson gson = new Gson();
 
     @PostConstruct
     public void initializeCollection() {
@@ -59,21 +87,18 @@ public class VectorServiceImpl implements IVectorService {
         }
 
         try {
-            // 尝试创建 ChromaDB 存储实例
-            ChromaEmbeddingStore chromaStore = ChromaEmbeddingStore.builder()
+            // 创建 ChromaDB 存储实例
+            this.embeddingStore = ChromaEmbeddingStore.builder()
                     .baseUrl(chromaUrl)
                     .collectionName(collectionName)
                     .build();
 
-            this.embeddingStore = chromaStore;
-            this.useChroma = true;
             this.initialized = true;
             log.info("ChromaDB向量数据库初始化成功，集合名称：{}，连接地址：{}", collectionName, chromaUrl);
             System.out.println("ChromaDB向量数据库初始化成功，集合名称：" + collectionName + "，连接地址：" + chromaUrl);
         } catch (Exception e) {
-            log.warn("ChromaDB向量数据库初始化失败，将使用内存存储作为备用方案。错误详情: {}", e.getMessage());
-            log.debug("ChromaDB初始化异常堆栈:", e);
-            fallbackToInMemoryStore();
+            log.error("ChromaDB向量数据库初始化失败: {}", e.getMessage(), e);
+            this.initialized = false;
         }
     }
 
@@ -87,17 +112,6 @@ public class VectorServiceImpl implements IVectorService {
         if (!initialized) {
             throw new IllegalStateException("向量数据库未初始化");
         }
-    }
-
-    /**
-     * 回退到内存存储
-     */
-    private void fallbackToInMemoryStore() {
-        this.embeddingStore = new InMemoryEmbeddingStore<>();
-        this.useChroma = false;
-        this.initialized = true;
-        log.info("内存向量数据库初始化成功");
-        System.out.println("内存向量数据库初始化成功");
     }
 
     @Override
@@ -122,28 +136,17 @@ public class VectorServiceImpl implements IVectorService {
 
             Embedding embedding = generateEmbedding(text);
 
-            if (useChroma) {
-                ChromaEmbeddingStore chromaStore = (ChromaEmbeddingStore) embeddingStore;
-
-                // 尝试先删除已存在的ID，以避免ID冲突
-                try {
-                    chromaStore.removeAll(List.of(id));
-                } catch (Exception e) {
-                    // 如果删除失败，继续添加
-                    log.warn("删除已存在的向量ID失败，将继续添加: {}", id, e);
-                }
-
-                chromaStore.add(id, embedding);
-            } else {
-                InMemoryEmbeddingStore<TextSegment> inMemoryStore = (InMemoryEmbeddingStore<TextSegment>) embeddingStore;
-
-                // 移除已存在的ID
-                inMemoryStore.removeAll(List.of(id));
-
-                inMemoryStore.add(id, embedding, TextSegment.from(text));
+            // 尝试先删除已存在的ID，以避免ID冲突
+            try {
+                embeddingStore.removeAll(List.of(id));
+            } catch (Exception e) {
+                // 如果删除失败，继续添加
+                log.warn("删除已存在的向量ID失败，将继续添加: {}", id, e);
             }
 
-            log.info("文本已添加到向量数据库，ID：{}，使用存储类型：{}", id, useChroma ? "ChromaDB" : "内存");
+            embeddingStore.add(id, embedding);
+
+            log.info("文本已添加到向量数据库，ID：{}", id);
         } catch (IllegalArgumentException e) {
             log.error("添加文本到向量数据库失败，参数错误：{}", e.getMessage());
             throw new RuntimeException("添加文本到向量数据库失败，参数错误", e);
@@ -165,6 +168,38 @@ public class VectorServiceImpl implements IVectorService {
             log.info("物品信息已添加到向量数据库，ID：{}", item.getId());
         } catch (Exception e) {
             log.error("添加到向量数据库时发生异常，物品ID：{}", item.getId(), e);
+            // 这里不抛出异常，因为向量数据库的失败不应影响主业务流程
+        }
+    }
+
+    @Override
+    public void addImagesToVectorDatabase(Item item, List<String> imageUrls) {
+        try {
+            if (imageUrls != null && !imageUrls.isEmpty()) {
+                // 处理多模态嵌入：结合文本描述和所有图片信息
+                String itemDescription = item.getDescription() != null ? item.getDescription() : "";
+
+                // 为整个物品创建一个多模态嵌入，包含文本描述和所有图片
+                String itemId = "item_" + item.getId();
+
+                // 创建多模态嵌入（文本+所有图片）
+                Embedding embedding = generateMultimodalEmbedding(itemDescription, imageUrls);
+
+                if (embedding != null) {
+                    // 尝试先删除已存在的ID
+                    try {
+                        embeddingStore.removeAll(List.of(itemId));
+                    } catch (Exception e) {
+                        log.warn("删除已存在的向量ID失败，将继续添加: {}", itemId, e);
+                    }
+
+                    embeddingStore.add(itemId, embedding);
+
+                    log.info("物品多模态信息已添加到向量数据库，物品ID：{}，图片数量：{}", item.getId(), imageUrls.size());
+                }
+            }
+        } catch (Exception e) {
+            log.error("添加物品图片到向量数据库时发生异常，物品ID：{}", item.getId(), e);
             // 这里不抛出异常，因为向量数据库的失败不应影响主业务流程
         }
     }
@@ -222,19 +257,13 @@ public class VectorServiceImpl implements IVectorService {
 
             Embedding queryEmbedding = generateEmbedding(query);
 
-            List<EmbeddingMatch<TextSegment>> relevant;
-            if (useChroma) {
-                relevant = ((ChromaEmbeddingStore) embeddingStore).findRelevant(queryEmbedding, maxResults);
-            } else {
-                relevant = ((InMemoryEmbeddingStore<TextSegment>) embeddingStore).findRelevant(queryEmbedding,
-                        maxResults);
-            }
+            List<EmbeddingMatch<TextSegment>> relevant = embeddingStore.findRelevant(queryEmbedding, maxResults);
 
             List<String> results = new ArrayList<>();
             for (EmbeddingMatch<TextSegment> match : relevant) {
                 results.add(match.embeddingId());
             }
-            log.info("向量搜索完成，查询：{}，返回结果数量：{}，使用存储类型：{}", query, results.size(), useChroma ? "ChromaDB" : "内存");
+            log.info("向量搜索完成，查询：{}，返回结果数量：{}", query, results.size());
             return results;
         } catch (Exception e) {
             log.error("向量搜索失败，查询：{}", query, e);
@@ -253,18 +282,11 @@ public class VectorServiceImpl implements IVectorService {
         checkInitialized();
 
         try {
-            List<EmbeddingMatch<TextSegment>> allItems;
-            if (useChroma) {
-                // 对于ChromaDB，使用一个通用查询来获取所有项目
-                Embedding queryEmbedding = generateEmbedding("anything");
-                allItems = ((ChromaEmbeddingStore) embeddingStore).findRelevant(queryEmbedding, 10000);
-            } else {
-                // 对于内存存储，同样使用查询来获取所有项目
-                Embedding queryEmbedding = generateEmbedding("anything");
-                allItems = ((InMemoryEmbeddingStore<TextSegment>) embeddingStore).findRelevant(queryEmbedding, 10000);
-            }
+            // 使用通用查询来获取所有项目
+            Embedding queryEmbedding = generateEmbedding("anything");
+            List<EmbeddingMatch<TextSegment>> allItems = embeddingStore.findRelevant(queryEmbedding, 10000);
             int size = allItems.size();
-            log.info("获取集合大小完成，当前大小：{}，使用存储类型：{}", size, useChroma ? "ChromaDB" : "内存");
+            log.info("获取集合大小完成，当前大小：{}", size);
             return size;
         } catch (Exception e) {
             log.error("获取集合大小失败", e);
@@ -287,18 +309,13 @@ public class VectorServiceImpl implements IVectorService {
                 return;
             }
 
-            if (useChroma) {
-                // ChromaDB Java客户端不直接支持按ID删除，所以我们尝试移除所有匹配的ID
-                try {
-                    ((ChromaEmbeddingStore) embeddingStore).removeAll(List.of(id));
-                    log.info("从ChromaDB向量数据库删除条目完成，ID：{}", id);
-                } catch (Exception e) {
-                    log.warn("ChromaDB不直接支持按ID删除，请考虑重新构建集合。ID：{}", id, e);
-                    // 记录但不抛出异常，因为这是ChromaDB的限制而非程序错误
-                }
-            } else {
-                ((InMemoryEmbeddingStore<TextSegment>) embeddingStore).removeAll(List.of(id));
-                log.info("从内存向量数据库删除条目完成，ID：{}", id);
+            // ChromaDB Java客户端不直接支持按ID删除，所以我们尝试移除所有匹配的ID
+            try {
+                embeddingStore.removeAll(List.of(id));
+                log.info("从ChromaDB向量数据库删除条目完成，ID：{}", id);
+            } catch (Exception e) {
+                log.warn("ChromaDB不直接支持按ID删除，请考虑重新构建集合。ID：{}", id, e);
+                // 记录但不抛出异常，因为这是ChromaDB的限制而非程序错误
             }
         } catch (Exception e) {
             log.error("从向量数据库删除条目失败，ID：{}", id, e);
@@ -316,19 +333,13 @@ public class VectorServiceImpl implements IVectorService {
         checkInitialized();
 
         try {
-            if (useChroma) {
-                // 对于ChromaDB，重新创建实例来清空数据
-                // 由于ChromaDB Java客户端没有直接的删除全部数据的方法，我们重新创建实例
-                this.embeddingStore = ChromaEmbeddingStore.builder()
-                        .baseUrl(chromaUrl)
-                        .collectionName(collectionName)
-                        .build();
-                log.info("ChromaDB向量数据库集合已清空并重建");
-            } else {
-                // 对于内存存储，创建新的实例
-                this.embeddingStore = new InMemoryEmbeddingStore<>();
-            }
-            log.info("向量数据库集合已清空，使用存储类型：{}", useChroma ? "ChromaDB" : "内存");
+            // 重新创建实例来清空数据
+            // 由于ChromaDB Java客户端没有直接的删除全部数据的方法，我们重新创建实例
+            this.embeddingStore = ChromaEmbeddingStore.builder()
+                    .baseUrl(chromaUrl)
+                    .collectionName(collectionName)
+                    .build();
+            log.info("ChromaDB向量数据库集合已清空并重建");
         } catch (Exception e) {
             log.error("清空向量数据库集合失败", e);
             throw new RuntimeException("清空集合失败", e);
@@ -383,6 +394,217 @@ public class VectorServiceImpl implements IVectorService {
     }
 
     /**
+     * 生成多模态嵌入向量（文本+图像）
+     * 优先使用DashScope SDK，失败时回退到HTTP API
+     * 
+     * @param text        输入文本
+     * @param base64Image Base64编码的图像数据
+     * @return 嵌入向量
+     */
+    private Embedding generateMultimodalEmbedding(String text, List<String> imageUrls) {
+        if (dashScopeApiKey == null || dashScopeApiKey.trim().isEmpty()) {
+            log.warn("DashScope API密钥未配置/为空，将使用简化嵌入向量（仅用于演示）");
+            String combinedText = text;
+            if (imageUrls != null && !imageUrls.isEmpty()) {
+                combinedText += String.join(" ", imageUrls);
+            }
+            return Embedding.from(computeSimpleEmbedding(combinedText));
+        }
+
+        // 优先尝试使用SDK方法
+        try {
+            Embedding sdkResult = generateMultimodalEmbeddingWithSDK(text, imageUrls);
+            if (sdkResult != null) {
+                log.debug("多模态嵌入生成成功（SDK方式）");
+                return sdkResult;
+            }
+        } catch (Exception e) {
+            log.warn("使用SDK生成多模态嵌入失败，将回退到HTTP API方式: {}", e.getMessage());
+        }
+
+        // SDK失败时回退到HTTP API
+        try {
+            Embedding httpResult = generateMultimodalEmbeddingWithHttp(text, imageUrls);
+            if (httpResult != null) {
+                log.debug("多模态嵌入生成成功（HTTP方式）");
+                return httpResult;
+            }
+        } catch (Exception e) {
+            log.error("使用HTTP API生成多模态嵌入也失败: {}", e.getMessage());
+        }
+
+        // 如果所有方法都失败，返回简化嵌入向量
+        log.warn("多模态向量结果为空，使用简化嵌入向量");
+        String combinedText = text;
+        if (imageUrls != null && !imageUrls.isEmpty()) {
+            combinedText += String.join(" ", imageUrls);
+        }
+        return Embedding.from(computeSimpleEmbedding(combinedText));
+    }
+
+    /**
+     * 使用DashScope SDK生成多模态嵌入向量
+     * 
+     * @param text        输入文本
+     * @param base64Image Base64编码的图像数据
+     * @return 嵌入向量
+     */
+    private Embedding generateMultimodalEmbeddingWithSDK(String text, List<String> imageUrls)
+            throws UploadFileException, NoApiKeyException {
+
+        List<MultiModalEmbeddingItemBase> contents = new ArrayList<>();
+
+        // 添加文本内容
+        if (text != null && !text.trim().isEmpty()) {
+            MultiModalEmbeddingItemText textContent = new MultiModalEmbeddingItemText(text);
+            contents.add(textContent);
+        }
+
+        // 添加多张图像内容
+        if (imageUrls != null && !imageUrls.isEmpty()) {
+            for (String imageUrl : imageUrls) {
+                if (imageUrl != null && !imageUrl.trim().isEmpty()) {
+                    try {
+                        // 将图片URL转换为Base64
+                        String base64Image = imageUrlToBase64(imageUrl);
+                        if (base64Image != null && !base64Image.isEmpty()) {
+                            // 提取纯Base64数据（去除data:image/...;base64,前缀）
+                            String pureBase64 = base64Image;
+                            if (base64Image.startsWith("data:image/")) {
+                                int commaIndex = base64Image.indexOf(",");
+                                if (commaIndex > 0) {
+                                    pureBase64 = base64Image.substring(commaIndex + 1);
+                                }
+                            }
+
+                            MultiModalEmbeddingItemImage imageContent = new MultiModalEmbeddingItemImage(pureBase64);
+                            contents.add(imageContent);
+                        }
+                    } catch (Exception e) {
+                        log.warn("转换图片URL到Base64失败: {}", imageUrl, e);
+                    }
+                }
+            }
+        }
+
+        if (contents.isEmpty()) {
+            log.warn("多模态内容为空，无法生成嵌入向量");
+            return null;
+        }
+
+        // 构建参数
+        MultiModalEmbeddingParam param = MultiModalEmbeddingParam.builder()
+                .apiKey(dashScopeApiKey)
+                .model("multimodal-embedding-v1")
+                .contents(contents)
+                .build();
+
+        // 调用API
+        MultiModalEmbedding multiModalEmbedding = new MultiModalEmbedding();
+        MultiModalEmbeddingResult result = multiModalEmbedding.call(param);
+
+        // 解析结果 - 使用安全的反射方式
+        if (result != null) {
+            try {
+                Embedding embedding = extractEmbeddingFromResult(result);
+                if (embedding != null) {
+                    return embedding;
+                }
+            } catch (Exception e) {
+                log.warn("从SDK结果中提取嵌入向量时发生异常: {}", e.getMessage());
+            }
+        }
+
+        log.warn("SDK返回的多模态嵌入结果为空");
+        return null;
+    }
+
+    /**
+     * 通过HTTP API生成多模态嵌入向量（原始方法保留作为回退方案）
+     * 
+     * @param text      输入文本
+     * @param imageUrls 图片URL列表
+     * @return 嵌入向量
+     */
+    private Embedding generateMultimodalEmbeddingWithHttp(String text, List<String> imageUrls) {
+        try {
+            // 构建多模态嵌入API请求体
+            JsonObject requestBody = new JsonObject();
+            requestBody.addProperty("model", "multimodal-embedding-v1");
+
+            JsonArray inputArray = new JsonArray();
+
+            // 添加文本
+            if (text != null && !text.trim().isEmpty()) {
+                JsonObject textObj = new JsonObject();
+                textObj.addProperty("text", text);
+                inputArray.add(textObj);
+            }
+
+            // 添加多张图像
+            if (imageUrls != null && !imageUrls.isEmpty()) {
+                for (String imageUrl : imageUrls) {
+                    if (imageUrl != null && !imageUrl.trim().isEmpty()) {
+                        try {
+                            // 将图片URL转换为Base64
+                            String base64Image = imageUrlToBase64(imageUrl);
+                            if (base64Image != null && !base64Image.isEmpty()) {
+                                JsonObject imageObj = new JsonObject();
+                                imageObj.addProperty("image", base64Image);
+                                inputArray.add(imageObj);
+                            }
+                        } catch (Exception e) {
+                            log.warn("转换图片URL到Base64失败: {}", imageUrl, e);
+                        }
+                    }
+                }
+            }
+
+            requestBody.add("input", inputArray);
+
+            // 创建HTTP请求
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(
+                            "https://dashscope.aliyuncs.com/api/v1/services/embeddings/multimodal/text-image-embedding"))
+                    .header("Authorization", "Bearer " + dashScopeApiKey)
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(gson.toJson(requestBody)))
+                    .timeout(Duration.ofSeconds(30))
+                    .build();
+
+            // 发送请求
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+            if (response.statusCode() == 200) {
+                JsonObject jsonResponse = gson.fromJson(response.body(), JsonObject.class);
+                JsonElement embeddingsElement = jsonResponse.getAsJsonObject("output").get("embeddings");
+
+                if (embeddingsElement != null && embeddingsElement.isJsonArray()) {
+                    JsonArray embeddingsArray = embeddingsElement.getAsJsonArray();
+                    if (embeddingsArray.size() > 0) {
+                        JsonArray firstEmbedding = embeddingsArray.get(0).getAsJsonArray();
+                        float[] embeddingArray = new float[firstEmbedding.size()];
+
+                        for (int i = 0; i < firstEmbedding.size(); i++) {
+                            embeddingArray[i] = firstEmbedding.get(i).getAsFloat();
+                        }
+
+                        return Embedding.from(embeddingArray);
+                    }
+                }
+            } else {
+                log.error("多模态嵌入HTTP API调用失败，状态码：{}，响应：{}", response.statusCode(), response.body());
+            }
+        } catch (Exception e) {
+            log.error("调用多模态嵌入HTTP API时发生异常，文本长度：{}, 图片数量：{}",
+                    text != null ? text.length() : 0,
+                    imageUrls != null ? imageUrls.size() : 0, e);
+        }
+
+        return null;
+    }
+
+    /**
      * 计算简单嵌入向量（用于演示）
      * 
      * @param text 输入文本
@@ -421,6 +643,54 @@ public class VectorServiceImpl implements IVectorService {
     }
 
     /**
+     * 将图片URL转换为Base64格式
+     *
+     * @param imageUrl 图片URL
+     * @return Base64编码的图片字符串，格式为 "data:image/[format];base64,[base64_data]"
+     * @throws Exception 当URL无效或下载失败时抛出异常
+     */
+    private String imageUrlToBase64(String imageUrl) throws Exception {
+        try {
+            URL url = new URL(imageUrl);
+            HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+            connection.setRequestMethod("GET");
+            connection.setConnectTimeout(5000);
+            connection.setReadTimeout(5000);
+
+            int responseCode = connection.getResponseCode();
+            if (responseCode != HttpURLConnection.HTTP_OK) {
+                throw new Exception("HTTP请求失败，状态码: " + responseCode);
+            }
+
+            byte[] imageBytes;
+            try (InputStream inputStream = connection.getInputStream()) {
+                imageBytes = inputStream.readAllBytes();
+            }
+
+            String imageData = Base64.getEncoder().encodeToString(imageBytes);
+
+            // 根据URL推断图片格式
+            String formatType = "jpeg"; // 默认格式
+            String lowerUrl = imageUrl.toLowerCase();
+            if (lowerUrl.endsWith(".png")) {
+                formatType = "png";
+            } else if (lowerUrl.endsWith(".jpg") || lowerUrl.endsWith(".jpeg")) {
+                formatType = "jpeg";
+            } else if (lowerUrl.endsWith(".gif")) {
+                formatType = "gif";
+            } else if (lowerUrl.endsWith(".webp")) {
+                formatType = "webp";
+            }
+
+            return "data:image/" + formatType + ";base64," + imageData;
+
+        } catch (Exception e) {
+            log.error("下载图片URL失败: {}", imageUrl, e);
+            throw e;
+        }
+    }
+
+    /**
      * 将图片文件转换为Base64格式
      *
      * @param imagePath 图片文件路径
@@ -452,6 +722,83 @@ public class VectorServiceImpl implements IVectorService {
         } catch (Exception e) {
             log.error("图片转Base64失败，路径：{}", imagePath, e);
             throw new Exception("错误：图片转Base64失败：" + e.getMessage());
+        }
+    }
+
+    /**
+     * 通过反射安全地从MultiModalEmbeddingResult中提取嵌入向量
+     * 
+     * @param result SDK返回的结果对象
+     * @return 嵌入向量，如果无法提取则返回null
+     */
+    private Embedding extractEmbeddingFromResult(MultiModalEmbeddingResult result) {
+        try {
+            // 尝试获取output对象
+            Object output = result.getOutput();
+            if (output == null) {
+                log.debug("SDK结果的output为null");
+                return null;
+            }
+
+            // 尝试常见的方法名来获取嵌入向量
+            String[] methodNames = { "getEmbeddings", "getEmbedding", "getResult", "getData", "getVectors" };
+            Class<?> outputClass = output.getClass();
+
+            for (String methodName : methodNames) {
+                try {
+                    java.lang.reflect.Method method = outputClass.getMethod(methodName);
+                    Object embeddingsObj = method.invoke(output);
+
+                    if (embeddingsObj instanceof List) {
+                        List<?> embeddingsList = (List<?>) embeddingsObj;
+                        if (!embeddingsList.isEmpty()) {
+                            Object firstItem = embeddingsList.get(0);
+                            if (firstItem instanceof List) {
+                                // 嵌入向量是List<Float>或List<Double>的形式
+                                List<?> vectorList = (List<?>) firstItem;
+                                if (!vectorList.isEmpty()) {
+                                    float[] embeddingArray = new float[vectorList.size()];
+                                    for (int i = 0; i < vectorList.size(); i++) {
+                                        Object value = vectorList.get(i);
+                                        if (value instanceof Number) {
+                                            embeddingArray[i] = ((Number) value).floatValue();
+                                        } else {
+                                            log.warn("嵌入向量中包含非数字值: {}", value);
+                                            return null;
+                                        }
+                                    }
+                                    return Embedding.from(embeddingArray);
+                                }
+                            } else if (firstItem instanceof Number) {
+                                // 嵌入向量是扁平化的List<Float>形式
+                                float[] embeddingArray = new float[embeddingsList.size()];
+                                for (int i = 0; i < embeddingsList.size(); i++) {
+                                    Object value = embeddingsList.get(i);
+                                    if (value instanceof Number) {
+                                        embeddingArray[i] = ((Number) value).floatValue();
+                                    } else {
+                                        log.warn("嵌入向量中包含非数字值: {}", value);
+                                        return null;
+                                    }
+                                }
+                                return Embedding.from(embeddingArray);
+                            }
+                        }
+                    }
+                } catch (NoSuchMethodException e) {
+                    // 方法不存在，继续尝试下一个
+                    continue;
+                } catch (Exception e) {
+                    log.debug("调用方法 {} 时发生异常: {}", methodName, e.getMessage());
+                }
+            }
+
+            log.debug("无法从SDK结果中提取有效的嵌入向量");
+            return null;
+
+        } catch (Exception e) {
+            log.warn("反射提取嵌入向量时发生异常: {}", e.getMessage());
+            return null;
         }
     }
 }
