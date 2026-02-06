@@ -34,6 +34,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
+import java.util.Objects;
+import com.whut.lostandfoundforwhut.mapper.ImageMapper;
+import com.whut.lostandfoundforwhut.model.entity.Image;
 
 /**
  * @author Qoder
@@ -51,6 +54,7 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
     private final ItemTagMapper itemTagMapper;
     private final ItemImageMapper itemImageMapper;
     private final IImageService imageService;
+    private final ImageMapper imageMapper;
     private final ITagService tagService;
     private final IVectorService vectorService;
 
@@ -84,10 +88,22 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
                 log.warn("物品图片关联失败，物品ID：{}", item.getId());
             }
         }
-
+        List<String> imageUrls;
+        if (itemDTO.getImageIds() != null && !itemDTO.getImageIds().isEmpty()) {
+            List<Image> images = imageMapper.selectList(
+                    new LambdaQueryWrapper<Image>().in(Image::getId, itemDTO.getImageIds()));
+            imageUrls = images.stream()
+                    .map(Image::getUrl)
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toList());
+        } else {
+            imageUrls = new ArrayList<>();
+        }
+        System.out.println("imageUrls: " + imageUrls);
         // 将物品描述添加到向量数据库
-        // addToVectorDatabaseImage(item, imageUrls);
-        vectorService.addToVectorDatabase(item);
+        // vectorService.addToVectorDatabase(item);
+        vectorService.addImagesToVectorDatabase(item, imageUrls);
+
         // 解析并绑定标签
         List<String> tagNames = tagService.parseTagText(itemDTO.getTagText());
         tagService.replaceTagsForItem(item.getId(), tagNames);
@@ -134,19 +150,20 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
 
         // 处理图片关联
         List<Long> updateImageIds = Optional.ofNullable(itemDTO.getImageIds())
-            .orElse(new ArrayList<>()); // 获取更新后的图片ID列表
+                .orElse(new ArrayList<>()); // 获取更新后的图片ID列表
         List<Long> oldImageIds = Optional.ofNullable(itemImageMapper.getImageIdsByItemId(itemId))
-            .orElse(new ArrayList<>()); // 获取旧图片实体列表
+                .orElse(new ArrayList<>()); // 获取旧图片实体列表
         List<Long> deleteImageIds = oldImageIds.stream()
-            .filter(id -> !updateImageIds.contains(id))
-            .collect(Collectors.toList()); // 要删除的图片ID列表
+                .filter(id -> !updateImageIds.contains(id))
+                .collect(Collectors.toList()); // 要删除的图片ID列表
         List<Long> addImageIds = updateImageIds.stream()
-            .filter(id -> !oldImageIds.contains(id))
-            .collect(Collectors.toList()); // 新添加的图片ID列表
+                .filter(id -> !oldImageIds.contains(id))
+                .collect(Collectors.toList()); // 新添加的图片ID列表
         // 删除旧关联
         if (deleteImageIds != null && !deleteImageIds.isEmpty()) {
             int rowsAffected = itemImageMapper.deleteItemImages(itemId, deleteImageIds);
-            log.info("物品图片关联删除，物品ID：{}，删除图片数量：{}，数据库影响行数：{}", existingItem.getId(), deleteImageIds.size(), rowsAffected);
+            log.info("物品图片关联删除，物品ID：{}，删除图片数量：{}，数据库影响行数：{}", existingItem.getId(), deleteImageIds.size(),
+                    rowsAffected);
         }
         // 添加新关联
         if (addImageIds != null && !addImageIds.isEmpty()) {

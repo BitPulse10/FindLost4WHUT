@@ -3,6 +3,8 @@ package com.whut.lostandfoundforwhut.model.dto;
 import lombok.Builder;
 import lombok.Data;
 
+import java.util.List;
+
 /**
  * 文本嵌入DTO
  */
@@ -18,4 +20,9 @@ public class TextEmbeddingDTO {
      * 文本内容
      */
     private String text;
+
+    /**
+     * 图片URL列表
+     */
+    private List<String> imageUrls;
 }

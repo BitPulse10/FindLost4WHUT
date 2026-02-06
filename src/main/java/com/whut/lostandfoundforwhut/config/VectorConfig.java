@@ -5,6 +5,9 @@ import com.whut.lostandfoundforwhut.model.entity.Item;
 import com.whut.lostandfoundforwhut.service.IVectorService;
 import com.whut.lostandfoundforwhut.service.impl.VectorServiceImpl;
 import lombok.extern.slf4j.Slf4j;
+
+import java.util.List;
+
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -78,6 +81,11 @@ public class VectorConfig {
 
         @Override
         public void addToVectorDatabase(Item item) {
+            // 空实现 - 不做任何操作
+        }
+
+        @Override
+        public void addImagesToVectorDatabase(Item item, List<String> imageUrls) {
             // 空实现 - 不做任何操作
         }
 

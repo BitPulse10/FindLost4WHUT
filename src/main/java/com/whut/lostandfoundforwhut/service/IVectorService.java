@@ -23,6 +23,14 @@ public interface IVectorService {
     void addToVectorDatabase(Item item);
 
     /**
+     * 添加物品的图片到向量数据库
+     *
+     * @param item      物品实体
+     * @param imageUrls 图片URL列表
+     */
+    void addImagesToVectorDatabase(Item item, List<String> imageUrls);
+
+    /**
      * 更新向量数据库中的物品信息
      *
      * @param item 更新后的物品实体
