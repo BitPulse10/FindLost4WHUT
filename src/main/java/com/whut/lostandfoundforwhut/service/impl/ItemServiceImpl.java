@@ -18,6 +18,7 @@ import com.whut.lostandfoundforwhut.model.entity.ItemTag;
 import com.whut.lostandfoundforwhut.model.entity.Tag;
 import com.whut.lostandfoundforwhut.model.entity.User;
 import com.whut.lostandfoundforwhut.model.vo.PageResultVO;
+import com.whut.lostandfoundforwhut.service.IImageService;
 import com.whut.lostandfoundforwhut.service.IItemService;
 import com.whut.lostandfoundforwhut.service.ITagService;
 import com.whut.lostandfoundforwhut.service.IVectorService;
@@ -31,6 +32,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -48,6 +50,7 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
     private final TagMapper tagMapper;
     private final ItemTagMapper itemTagMapper;
     private final ItemImageMapper itemImageMapper;
+    private final IImageService imageService;
     private final ITagService tagService;
     private final IVectorService vectorService;
 
@@ -94,6 +97,7 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
     }
 
     @Override
+    @Transactional
     public Item updateItem(Long itemId, ItemDTO itemDTO, Long userId) {
         // 查询物品是否存在
         Item existingItem = itemMapper.selectById(itemId);
@@ -128,6 +132,32 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
         // 更新数据库
         itemMapper.updateById(existingItem);
 
+        // 处理图片关联
+        List<Long> updateImageIds = Optional.ofNullable(itemDTO.getImageIds())
+            .orElse(new ArrayList<>()); // 获取更新后的图片ID列表
+        List<Long> oldImageIds = Optional.ofNullable(itemImageMapper.getImageIdsByItemId(itemId))
+            .orElse(new ArrayList<>()); // 获取旧图片实体列表
+        List<Long> deleteImageIds = oldImageIds.stream()
+            .filter(id -> !updateImageIds.contains(id))
+            .collect(Collectors.toList()); // 要删除的图片ID列表
+        List<Long> addImageIds = updateImageIds.stream()
+            .filter(id -> !oldImageIds.contains(id))
+            .collect(Collectors.toList()); // 新添加的图片ID列表
+        // 删除旧关联
+        if (deleteImageIds != null && !deleteImageIds.isEmpty()) {
+            int rowsAffected = itemImageMapper.deleteItemImages(itemId, deleteImageIds);
+            log.info("物品图片关联删除，物品ID：{}，删除图片数量：{}，数据库影响行数：{}", existingItem.getId(), deleteImageIds.size(), rowsAffected);
+        }
+        // 添加新关联
+        if (addImageIds != null && !addImageIds.isEmpty()) {
+            boolean success = itemImageMapper.insertItemImages(existingItem.getId(), addImageIds);
+            if (success) {
+                log.info("物品图片关联成功，物品ID：{}，图片数量：{}", existingItem.getId(), itemDTO.getImageIds().size());
+            } else {
+                log.warn("物品图片关联失败，物品ID：{}", existingItem.getId());
+            }
+        }
+
         // 更新向量数据库中的物品描述
         vectorService.updateVectorDatabase(existingItem);
         // 仅在传入 tagText 时更新标签
@@ -136,6 +166,11 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
             tagService.replaceTagsForItem(itemId, tagNames);
         }
         existingItem.setTags(tagService.getTagNamesByItemId(itemId));
+
+        // 最后删除旧图片实体
+        if (deleteImageIds != null && !deleteImageIds.isEmpty()) {
+            imageService.deleteImagesAndFiles(deleteImageIds);
+        }
 
         return existingItem;
     }

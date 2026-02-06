@@ -5,6 +5,7 @@ import com.whut.lostandfoundforwhut.model.dto.ItemDTO;
 import com.whut.lostandfoundforwhut.model.dto.ItemFilterDTO;
 import com.whut.lostandfoundforwhut.model.entity.Item;
 import com.whut.lostandfoundforwhut.model.vo.PageResultVO;
+import com.whut.lostandfoundforwhut.service.IImageService;
 import com.whut.lostandfoundforwhut.service.IItemService;
 import com.whut.lostandfoundforwhut.common.utils.security.jwt.JwtUtil;
 import com.whut.lostandfoundforwhut.common.enums.ResponseCode;
@@ -16,9 +17,13 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.util.StringUtils;
 import com.whut.lostandfoundforwhut.service.IUserService;
+import com.whut.lostandfoundforwhut.mapper.ItemImageMapper;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * @author Qoder
@@ -35,6 +40,8 @@ public class ItemController {
     private final IItemService itemService;
     private final JwtUtil jwtUtil;
     private final IUserService userService;
+    private final IImageService imageService;
+    private final ItemImageMapper itemImageMapper;
 
     @PostMapping("/add-item")
     @Operation(summary = "添加物品", description = "添加新的挂失或招领物品")
@@ -47,13 +54,22 @@ public class ItemController {
             System.out.println("成功创建物品，ID：" + item.getId());
 
             return Result.success(item);
-        } catch (AppException e) {
-            System.out.println("添加物品时发生业务异常：" + e.getMessage());
-            return Result.fail(e.getCode(), e.getInfo());
         } catch (Exception e) {
-            System.out.println("添加物品时发生未知异常：" + e.getMessage());
-            e.printStackTrace();
-            return Result.fail(ResponseCode.UN_ERROR.getCode(), "添加物品失败：" + e.getMessage());
+            // 捕获异常后，删除上传的图片
+            if (itemDTO.getImageIds() != null && !itemDTO.getImageIds().isEmpty()) {
+                imageService.deleteImagesAndFiles(itemDTO.getImageIds());
+            }
+
+            // 处理业务异常
+            if (e instanceof AppException) {
+                AppException appException = (AppException) e;
+                System.out.println("添加物品时发生业务异常：" + e.getMessage());
+                return Result.fail(appException.getCode(), appException.getInfo());
+            } else {
+                System.out.println("添加物品时发生未知异常：" + e.getMessage());
+                e.printStackTrace();
+                return Result.fail(ResponseCode.UN_ERROR.getCode(), "添加物品失败：" + e.getMessage());
+            }
         }
     }
 
@@ -68,13 +84,25 @@ public class ItemController {
             Item updatedItem = itemService.updateItem(itemId, itemDTO, userId);
 
             return Result.success(updatedItem);
-        } catch (AppException e) {
-            System.out.println("更新物品时发生业务异常：" + e.getMessage());
-            return Result.fail(e.getCode(), e.getInfo());
         } catch (Exception e) {
-            System.out.println("更新物品时发生未知异常：" + e.getMessage());
-            e.printStackTrace();
-            return Result.fail(ResponseCode.UN_ERROR.getCode(), "更新物品失败：" + e.getMessage());
+            // 捕获异常后，删除新上传的图片
+            List<Long> updateImageIds = Optional.ofNullable(itemDTO.getImageIds()).orElse(new ArrayList<>()); // 获取更新后的图片ID列表
+            List<Long> oldImageIds = Optional.ofNullable(itemImageMapper.getImageIdsByItemId(itemId)).orElse(new ArrayList<>()); // 获取旧图片实体列表
+            List<Long> addImageIds = updateImageIds.stream().filter(id -> !oldImageIds.contains(id)).collect(Collectors.toList()); // 新添加的图片ID列表
+            if (addImageIds != null && !addImageIds.isEmpty()) {
+                imageService.deleteImagesAndFiles(addImageIds);
+            }
+            
+            // 处理业务异常
+            if (e instanceof AppException) {
+                AppException appException = (AppException) e;
+                System.out.println("更新物品时发生业务异常：" + e.getMessage());
+                return Result.fail(appException.getCode(), appException.getInfo());
+            } else {
+                System.out.println("更新物品时发生未知异常：" + e.getMessage());
+                e.printStackTrace();
+                return Result.fail(ResponseCode.UN_ERROR.getCode(), "更新物品失败：" + e.getMessage());
+            }
         }
     }
 
