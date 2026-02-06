@@ -72,8 +72,15 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
         int rowsAffected = itemMapper.insert(item);
         log.info("数据库影响行数：{}，物品创建成功：{}", rowsAffected, item.getId());
 
-        // 获取物品对应图片（URL列表）
-        List<String> imageUrls = itemImageMapper.getImageUrlsByItemId(item.getId());
+        // 将物品和图片添加到关联表中
+        if (itemDTO.getImageIds() != null && !itemDTO.getImageIds().isEmpty()) {
+            boolean imageAssociationSuccess = itemImageMapper.insertItemImages(item.getId(), itemDTO.getImageIds());
+            if (imageAssociationSuccess) {
+                log.info("物品图片关联成功，物品ID：{}，图片数量：{}", item.getId(), itemDTO.getImageIds().size());
+            } else {
+                log.warn("物品图片关联失败，物品ID：{}", item.getId());
+            }
+        }
 
         // 将物品描述添加到向量数据库
         // addToVectorDatabaseImage(item, imageUrls);

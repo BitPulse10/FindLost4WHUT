@@ -5,6 +5,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * @author Qoder
@@ -24,4 +25,8 @@ public class ItemDTO {
      * 标签文本，使用 # 分隔
      */
     private String tagText;
+    /**
+     * 图片ID列表
+     */
+    private List<Long> imageIds;
 }
