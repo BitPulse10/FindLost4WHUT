@@ -22,6 +22,12 @@
         WHERE ii.item_id = #{itemId}
     </select>
     
+    <!-- 根据物品ID获取图片ID列表 -->
+    <select id="getImageIdsByItemId" resultType="java.lang.Long">
+        SELECT image_id FROM item_images
+        WHERE item_id = #{itemId}
+    </select>
+    
     <!-- 批量插入物品-图片关联 -->
     <insert id="insertItemImages" parameterType="map">
         INSERT INTO item_images (item_id, image_id)
@@ -30,4 +36,19 @@
             (#{itemId}, #{imageId})
         </foreach>
     </insert>
+    
+    <!-- 根据物品ID删除物品-图片关联 -->
+    <delete id="deleteByItemId" parameterType="java.lang.Long">
+        DELETE FROM item_images WHERE item_id = #{itemId}
+    </delete>
+    
+    <!-- 批量删除物品-图片关联 -->
+    <delete id="deleteItemImages" parameterType="map">
+        DELETE FROM item_images 
+        WHERE item_id = #{itemId} 
+        AND image_id IN 
+        <foreach collection="imageIds" item="imageId" open="(" separator="," close=")">
+            #{imageId}
+        </foreach>
+    </delete>
 </mapper>

@@ -7,8 +7,6 @@ import com.whut.lostandfoundforwhut.common.utils.cos.ContentRecognizer;
 import com.whut.lostandfoundforwhut.common.utils.cos.ContentReviewer;
 import com.whut.lostandfoundforwhut.common.utils.image.ImageValidator;
 import com.whut.lostandfoundforwhut.mapper.ImageMapper;
-import com.whut.lostandfoundforwhut.mapper.ItemImageMapper;
-import com.whut.lostandfoundforwhut.mapper.ItemMapper;
 import com.whut.lostandfoundforwhut.model.entity.Image;
 import com.whut.lostandfoundforwhut.service.IImageService;
 
@@ -53,10 +51,6 @@ public class ImageServiceImpl extends ServiceImpl<ImageMapper, Image> implements
     private ContentRecognizer contentRecognizer;
 
     @Autowired
-    private ItemImageMapper itemImageMapper;
-    @Autowired
-    private ItemMapper itemMapper;
-    @Autowired
     private ImageMapper imageMapper;
 
     // 最小置信度
@@ -68,38 +62,69 @@ public class ImageServiceImpl extends ServiceImpl<ImageMapper, Image> implements
     }
 
     /**
-     * 上传并添加物品图片
-     * @param itemId 物品ID
+     * @description 获取图片上传目录
+     * @return 图片上传目录
+     */
+    @Override
+    public String getUploadDir() { return uploadDir; }
+
+    /**
+     * @description 上传图片
      * @param files 图片文件列表
      * @return 图片实体列表
      */
     @Override
-    public List<Image> uploadAndAddItemImages(Long itemId, List<MultipartFile> files) {
+    public List<Image> uploadImages(List<MultipartFile> files) {
+        if (files == null || files.isEmpty()) { 
+            return new ArrayList<>(); 
+        }
+
+        for (MultipartFile file : files) {
+            if (file == null || file.isEmpty()) { continue; }
+            validateImageFile(file);
+        }
+
+        List<String> uniqueFilenames = new ArrayList<>(); // 存储唯一文件名
         try {
-            // 上传图片
-            List<Image> images = uploadImages(files);
-            if (images.isEmpty()) { return new ArrayList<>(); }
-            // 保存图片关联到物品
-            List<Long> imageIds = images.stream().map(Image::getId).collect(Collectors.toList());
-            boolean success = itemImageMapper.insertItemImages(itemId, imageIds);
-            // 检查关联是否成功
-            if (!success) {
-                throw new AppException(ResponseCode.UN_ERROR.getCode(), "图片失败");
+            // 上传所有文件
+            for (MultipartFile file : files) {
+                if (file == null || file.isEmpty()) { continue; }
+                // 上传文件到COS并获取唯一文件名
+                String uniqueFilename = uploadFileToCOSReturnUniqueFilename(file);
+                // 添加到唯一文件名列表
+                uniqueFilenames.add(uniqueFilename);
             }
+
+            // 审核所有图片
+            List<String> messages = contentReviewer.batchReviewImageKey(uniqueFilenames);
+            String message = joinMessages(messages, "; ", (i, msg) -> "图片" + (i+1) + "审核失败: " + msg);
+            if (message != null) {
+                throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(), message);
+            }
+
+            // 创建上传目录
+            File uploadDirFile = createDir(uploadDir);
+            // 下载并保存图片
+            List<Image> images = new ArrayList<>();
+            for (String uniqueFilename : uniqueFilenames) {
+                File filePath = new File(uploadDirFile, uniqueFilename);
+                cos.downloadFile(uniqueFilename, filePath);
+                // 创建图片对象
+                Image image = new Image();
+                image.setUrl(uniqueFilename);
+                images.add(image);
+            }
+            // 批量保存到数据库
+            this.saveBatch(images);
+                
             return images;
+        } catch (AppException e) {
+            throw e;
         } catch (Exception e) {
-            // 执行物理删除物品（绕过逻辑删除）
-            try {
-                int rowsAffected = itemMapper.deletePhysicalById(itemId);
-                log.info("删除物品，itemId: {}, 受影响行数: {}", itemId, rowsAffected);
-            } catch (Exception ex) {
-                log.error("删除物品失败: {}", ex.getMessage());
-            }
-            // 处理异常
-            if (e instanceof AppException) {
-                throw (AppException) e;
-            }
-            throw new AppException(ResponseCode.UN_ERROR.getCode(), "上传图片失败: " + e.getMessage());
+            throw new AppException(ResponseCode.UN_ERROR.getCode(), "文件上传失败: " + e.getMessage());
+        } finally {
+            // 确保COS上的文件被删除
+            cos.batchDeleteObject(uniqueFilenames);
         }
     }
 
@@ -148,59 +173,36 @@ public class ImageServiceImpl extends ServiceImpl<ImageMapper, Image> implements
         return imageMapper.selectById(id);
     }
 
-    /**
-     * @description 上传图片
-     * @param files 图片文件列表
-     * @return 图片实体列表
+     /**
+     * @description 根据ID获取图片文件
+     * @param id 图片ID
+     * @return 图片文件
      */
-    private List<Image> uploadImages(List<MultipartFile> files) {
-        for (MultipartFile file : files) {
-            if (file == null || file.isEmpty()) { continue; }
-            validateImageFile(file);
+    @Override
+    public File getImageFileById(Long id) {
+        Image image = imageMapper.selectById(id);
+        if (image == null || image.getUrl() == null) {
+            return null;
         }
+        File imageFile = new File(uploadDir, image.getUrl());
+        if (!imageFile.exists()) {
+            return null;
+        }
+        return imageFile;
+    }
 
-        List<String> uniqueFilenames = new ArrayList<>(); // 存储唯一文件名
-        try {
-            // 上传所有文件
-            for (MultipartFile file : files) {
-                if (file == null || file.isEmpty()) { continue; }
-                // 上传文件到COS并获取唯一文件名
-                String uniqueFilename = uploadFileToCOSReturnUniqueFilename(file);
-                // 添加到唯一文件名列表
-                uniqueFilenames.add(uniqueFilename);
+    /**
+     * @description 删除图片和关联的文件
+     * @param imageIds 图片ID列表
+     */
+    @Override
+    public void deleteImagesAndFiles(List<Long> imageIds) {
+        for (Long imageId : imageIds) {
+            File imageFile = getImageFileById(imageId);
+            if (imageFile != null && imageFile.exists()) {
+                imageFile.delete();
             }
-
-            // 审核所有图片
-            List<String> messages = contentReviewer.batchReviewImageKey(uniqueFilenames);
-            String message = joinMessages(messages, "; ", (i, msg) -> "图片" + (i+1) + "审核失败: " + msg);
-            if (message != null) {
-                throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(), message);
-            }
-
-            // 创建上传目录
-            File uploadDirFile = createDir(uploadDir);
-            // 下载并保存图片
-            List<Image> images = new ArrayList<>();
-            for (String uniqueFilename : uniqueFilenames) {
-                File filePath = new File(uploadDirFile, uniqueFilename);
-                cos.downloadFile(uniqueFilename, filePath);
-                // 创建图片对象
-                Image image = new Image();
-                image.setUrl(uniqueFilename);
-                images.add(image);
-            }
-            // 批量保存到数据库
-            if (!images.isEmpty()) {
-                this.saveBatch(images);
-            }
-            return images;
-        } catch (AppException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new AppException(ResponseCode.UN_ERROR.getCode(), "文件上传失败: " + e.getMessage());
-        } finally {
-            // 确保COS上的文件被删除
-            cos.batchDeleteObject(uniqueFilenames);
+            imageMapper.deleteById(imageId);
         }
     }
 
