@@ -23,7 +23,6 @@ import org.springframework.web.bind.annotation.*;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.util.stream.Collectors;
 
 /**
  * @author Qoder
@@ -56,9 +55,10 @@ public class ItemController {
             return Result.success(item);
         } catch (Exception e) {
             // 捕获异常后，删除上传的图片
-            if (itemDTO.getImageIds() != null && !itemDTO.getImageIds().isEmpty()) {
-                imageService.deleteImagesAndFiles(itemDTO.getImageIds());
-            }
+            // if (itemDTO.getImageId() != null) {
+            // List<Long> imageIds = Arrays.asList(itemDTO.getImageId());
+            // imageService.deleteImagesAndFiles(imageIds);
+            // }
 
             // 处理业务异常
             if (e instanceof AppException) {
@@ -85,14 +85,28 @@ public class ItemController {
 
             return Result.success(updatedItem);
         } catch (Exception e) {
-            // 捕获异常后，删除新上传的图片
-            List<Long> updateImageIds = Optional.ofNullable(itemDTO.getImageIds()).orElse(new ArrayList<>()); // 获取更新后的图片ID列表
-            List<Long> oldImageIds = Optional.ofNullable(itemImageMapper.getImageIdsByItemId(itemId)).orElse(new ArrayList<>()); // 获取旧图片实体列表
-            List<Long> addImageIds = updateImageIds.stream().filter(id -> !oldImageIds.contains(id)).collect(Collectors.toList()); // 新添加的图片ID列表
-            if (addImageIds != null && !addImageIds.isEmpty()) {
-                imageService.deleteImagesAndFiles(addImageIds);
+            // 捕获异常后，删除要删除的图片
+            String updateImageIdStr = itemDTO.getImageId();
+            Long updateImageId = null;
+            if (updateImageIdStr != null && !updateImageIdStr.isEmpty()) {
+                try {
+                    updateImageId = Long.parseLong(updateImageIdStr);
+                } catch (NumberFormatException ex) {
+                    log.warn("图片ID格式错误: {}", updateImageIdStr);
+                }
             }
-            
+            List<Long> oldImageIds = Optional.ofNullable(itemImageMapper.getImageIdsByItemId(itemId))
+                    .orElse(new ArrayList<>()); // 获取旧图片实体列表
+            List<Long> deleteImageIds = new ArrayList<>();
+
+            // 如果有旧图片但新图片ID不同，则删除旧图片
+            if (!oldImageIds.isEmpty() && (updateImageId == null || !oldImageIds.contains(updateImageId))) {
+                deleteImageIds.addAll(oldImageIds);
+            }
+            if (deleteImageIds != null && !deleteImageIds.isEmpty()) {
+                imageService.deleteImagesAndFiles(deleteImageIds);
+            }
+
             // 处理业务异常
             if (e instanceof AppException) {
                 AppException appException = (AppException) e;

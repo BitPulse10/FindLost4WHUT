@@ -28,5 +28,5 @@ public class ItemDTO {
     /**
      * 图片ID列表
      */
-    private List<Long> imageIds;
+    private String imageId;
 }

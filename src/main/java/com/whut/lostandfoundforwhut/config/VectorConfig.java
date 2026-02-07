@@ -85,7 +85,12 @@ public class VectorConfig {
         }
 
         @Override
-        public void addImagesToVectorDatabase(Item item, List<String> imageUrls) {
+        public void addImagesToVectorDatabases(Item item, List<String> imageUrls) {
+            // 空实现 - 不做任何操作
+        }
+
+        @Override
+        public void addImagesToVectorDatabase(Item item, String imageUrl) {
             // 空实现 - 不做任何操作
         }
 

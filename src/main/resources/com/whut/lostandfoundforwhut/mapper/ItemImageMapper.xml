@@ -51,4 +51,13 @@
             #{imageId}
         </foreach>
     </delete>
+    
+    <!-- 根据图片ID删除所有关联关系 -->
+    <delete id="deleteAllItemImagesByImageIds" parameterType="list">
+        DELETE FROM item_images 
+        WHERE image_id IN 
+        <foreach collection="list" item="imageId" open="(" separator="," close=")">
+            #{imageId}
+        </foreach>
+    </delete>
 </mapper>

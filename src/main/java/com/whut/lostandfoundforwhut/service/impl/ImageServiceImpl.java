@@ -7,6 +7,7 @@ import com.whut.lostandfoundforwhut.common.utils.cos.ContentRecognizer;
 import com.whut.lostandfoundforwhut.common.utils.cos.ContentReviewer;
 import com.whut.lostandfoundforwhut.common.utils.image.ImageValidator;
 import com.whut.lostandfoundforwhut.mapper.ImageMapper;
+import com.whut.lostandfoundforwhut.mapper.ItemImageMapper;
 import com.whut.lostandfoundforwhut.model.entity.Image;
 import com.whut.lostandfoundforwhut.service.IImageService;
 
@@ -53,6 +54,9 @@ public class ImageServiceImpl extends ServiceImpl<ImageMapper, Image> implements
     @Autowired
     private ImageMapper imageMapper;
 
+    @Autowired
+    private ItemImageMapper itemImageMapper;
+
     // 最小置信度
     private int CONTENT_RECOGNITION_MIN_CONFIDENCE = 60;
 
@@ -66,7 +70,9 @@ public class ImageServiceImpl extends ServiceImpl<ImageMapper, Image> implements
      * @return 图片上传目录
      */
     @Override
-    public String getUploadDir() { return uploadDir; }
+    public String getUploadDir() {
+        return uploadDir;
+    }
 
     /**
      * @description 上传图片
@@ -75,12 +81,14 @@ public class ImageServiceImpl extends ServiceImpl<ImageMapper, Image> implements
      */
     @Override
     public List<Image> uploadImages(List<MultipartFile> files) {
-        if (files == null || files.isEmpty()) { 
-            return new ArrayList<>(); 
+        if (files == null || files.isEmpty()) {
+            return new ArrayList<>();
         }
 
         for (MultipartFile file : files) {
-            if (file == null || file.isEmpty()) { continue; }
+            if (file == null || file.isEmpty()) {
+                continue;
+            }
             validateImageFile(file);
         }
 
@@ -88,7 +96,9 @@ public class ImageServiceImpl extends ServiceImpl<ImageMapper, Image> implements
         try {
             // 上传所有文件
             for (MultipartFile file : files) {
-                if (file == null || file.isEmpty()) { continue; }
+                if (file == null || file.isEmpty()) {
+                    continue;
+                }
                 // 上传文件到COS并获取唯一文件名
                 String uniqueFilename = uploadFileToCOSReturnUniqueFilename(file);
                 // 添加到唯一文件名列表
@@ -97,7 +107,7 @@ public class ImageServiceImpl extends ServiceImpl<ImageMapper, Image> implements
 
             // 审核所有图片
             List<String> messages = contentReviewer.batchReviewImageKey(uniqueFilenames);
-            String message = joinMessages(messages, "; ", (i, msg) -> "图片" + (i+1) + "审核失败: " + msg);
+            String message = joinMessages(messages, "; ", (i, msg) -> "图片" + (i + 1) + "审核失败: " + msg);
             if (message != null) {
                 throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(), message);
             }
@@ -116,7 +126,7 @@ public class ImageServiceImpl extends ServiceImpl<ImageMapper, Image> implements
             }
             // 批量保存到数据库
             this.saveBatch(images);
-                
+
             return images;
         } catch (AppException e) {
             throw e;
@@ -148,8 +158,9 @@ public class ImageServiceImpl extends ServiceImpl<ImageMapper, Image> implements
                 throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(), message);
             }
             // 从COS上的图片提取标签
-            List<String> tabs = contentRecognizer.getCategoriesAndNames(uniqueFilename, CONTENT_RECOGNITION_MIN_CONFIDENCE);
-            
+            List<String> tabs = contentRecognizer.getCategoriesAndNames(uniqueFilename,
+                    CONTENT_RECOGNITION_MIN_CONFIDENCE);
+
             return tabs;
         } catch (AppException e) {
             throw e;
@@ -173,7 +184,7 @@ public class ImageServiceImpl extends ServiceImpl<ImageMapper, Image> implements
         return imageMapper.selectById(id);
     }
 
-     /**
+    /**
      * @description 根据ID获取图片文件
      * @param id 图片ID
      * @return 图片文件
@@ -197,17 +208,35 @@ public class ImageServiceImpl extends ServiceImpl<ImageMapper, Image> implements
      */
     @Override
     public void deleteImagesAndFiles(List<Long> imageIds) {
+        if (imageIds == null || imageIds.isEmpty()) {
+            return;
+        }
+
+        // 先删除所有相关的物品-图片关联关系
+        int deletedAssociations = itemImageMapper.deleteAllItemImagesByImageIds(imageIds);
+        log.info("已删除 {} 条物品-图片关联记录", deletedAssociations);
+
         for (Long imageId : imageIds) {
+            // 删除本地文件
             File imageFile = getImageFileById(imageId);
             if (imageFile != null && imageFile.exists()) {
                 imageFile.delete();
+                log.info("已删除图片文件: {}", imageFile.getAbsolutePath());
             }
-            imageMapper.deleteById(imageId);
+
+            // 删除数据库记录
+            boolean deleted = this.removeById(imageId);
+            if (deleted) {
+                log.info("已删除图片记录，ID: {}", imageId);
+            } else {
+                log.warn("删除图片记录失败，ID: {}", imageId);
+            }
         }
     }
 
     /**
      * 上传文件到COS并返回唯一文件名
+     * 
      * @param file 上传的文件
      * @return 唯一文件名
      * @throws IOException 如果上传过程中发生IO错误
@@ -218,7 +247,7 @@ public class ImageServiceImpl extends ServiceImpl<ImageMapper, Image> implements
         String extension = originalFilename.substring(originalFilename.lastIndexOf("."));
         // 生成唯一文件名
         String uniqueFilename = java.util.UUID.randomUUID().toString() + extension;
-        
+
         // 先保存到临时文件
         File tempFile = File.createTempFile("temp", extension);
         file.transferTo(tempFile.toPath());
@@ -231,6 +260,7 @@ public class ImageServiceImpl extends ServiceImpl<ImageMapper, Image> implements
 
     /**
      * 验证文件
+     * 
      * @param file 上传的文件
      */
     private void validateImageFile(MultipartFile file) {
@@ -251,6 +281,7 @@ public class ImageServiceImpl extends ServiceImpl<ImageMapper, Image> implements
 
     /**
      * 创建目录文件
+     * 
      * @param path 目录路径
      * @return 目录文件
      */
@@ -264,29 +295,39 @@ public class ImageServiceImpl extends ServiceImpl<ImageMapper, Image> implements
 
     /**
      * 合并消息列表
-     * @param messages 消息列表
+     * 
+     * @param messages  消息列表
      * @param separator 分隔符
-     * @param mapper 映射函数
+     * @param mapper    映射函数
      * @return 合并后的消息字符串, 若消息列表为空则返回null
      */
     private String joinMessages(
-        List<String> messages,
-        String separator,
-        BiFunction<Integer, String, String> mapper
-    ) {
-        if (messages == null || messages.isEmpty()) { return null; }
+            List<String> messages,
+            String separator,
+            BiFunction<Integer, String, String> mapper) {
+        if (messages == null || messages.isEmpty()) {
+            return null;
+        }
 
-        if (separator == null) { separator = ", "; }
-        if (mapper == null) { mapper = (index, message) -> message; }
+        if (separator == null) {
+            separator = ", ";
+        }
+        if (mapper == null) {
+            mapper = (index, message) -> message;
+        }
 
         List<String> messageItems = new ArrayList<>();
         for (int i = 0; i < messages.size(); i++) {
-            if (messages.get(i) == null) { continue; }
-        
+            if (messages.get(i) == null) {
+                continue;
+            }
+
             String messageItem = mapper.apply(i, messages.get(i));
             messageItems.add(messageItem);
         }
-        if (messageItems.isEmpty()) { return null; }
+        if (messageItems.isEmpty()) {
+            return null;
+        }
 
         return messageItems.stream().collect(Collectors.joining(separator));
     }
