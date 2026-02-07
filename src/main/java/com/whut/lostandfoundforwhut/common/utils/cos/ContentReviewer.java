@@ -27,7 +27,7 @@ public class ContentReviewer {
     /**
      * @description 审核文本
      * @param text 文本
-     * @return 审核错误描述，为空字符串则审核通过
+     * @return 审核错误描述，为空则审核通过
      */
     public String reviewText(String text) {
         if (text == null || text.isEmpty()) {
@@ -56,7 +56,7 @@ public class ContentReviewer {
     /**
      * @description 审核图片 URL
      * @param imageURL 图片 URL
-     * @return 审核错误描述，为空字符串则审核通过
+     * @return 审核错误描述，为空则审核通过
      */
     public String reviewImageURL(String imageURL) {
         // 构建图片审核请求
@@ -76,7 +76,7 @@ public class ContentReviewer {
     /**
      * @description 批量审核图片 URL
      * @param imageURLs 图片 URL 列表
-     * @return 审核错误描述列表，为空字符串则审核通过
+     * @return 审核错误描述列表，为空则审核通过
      */
     public List<String> batchReviewImageURL(List<String> imageURLs) {
         // 构建批量图片审核请求
@@ -113,7 +113,7 @@ public class ContentReviewer {
     /**
      * @description 通过对象键审核图片
      * @param objectKey 对象键
-     * @return 审核错误描述，为空字符串则审核通过
+     * @return 审核错误描述，为空则审核通过
      */
     public String reviewImageKey(String objectKey) {
         // 构建图片审核请求
@@ -133,7 +133,7 @@ public class ContentReviewer {
      /**
      * @description 批量审核图片对象键
      * @param objectKeys 图片对象键列表
-     * @return 审核错误描述列表，为空字符串则审核通过
+     * @return 审核错误描述列表，为空则审核通过
      */
     public List<String> batchReviewImageKey(List<String> objectKeys) {
         // 构建批量图片审核请求

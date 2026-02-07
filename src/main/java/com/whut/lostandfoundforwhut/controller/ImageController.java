@@ -19,6 +19,11 @@ public class ImageController {
     @Autowired
     private IImageService imageService;
 
+    /**
+     * 上传多张图片
+     * @param files 图片文件列表，文件类型仅支持为jpg、png、gif
+     * @return 图片实体列表
+     */
     @PostMapping("/upload")
     public Result<List<Image>> uploadMultiple(@RequestParam("files") List<MultipartFile> files) {
         try {
@@ -30,6 +35,11 @@ public class ImageController {
         }
     }
 
+    /**
+     * 识别图片中的标签
+     * @param file 图片文件，文件类型仅支持为jpg、png、gif
+     * @return 图片中的标签列表
+     */
     @PostMapping("/recognize/tabs")
     public Result<List<String>> getTabs(@RequestParam("file") MultipartFile file) {
         try {
@@ -40,6 +50,11 @@ public class ImageController {
         }
     }
 
+    /**
+     * 根据图片ID查询图片信息
+     * @param id 图片ID
+     * @return 图片实体
+     */
     @GetMapping("/{id}")
     public Result<Image> getImageById(@PathVariable Long id) {
         try {

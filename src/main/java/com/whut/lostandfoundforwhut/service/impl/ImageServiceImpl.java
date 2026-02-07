@@ -5,6 +5,7 @@ import com.whut.lostandfoundforwhut.common.exception.AppException;
 import com.whut.lostandfoundforwhut.common.utils.cos.COS;
 import com.whut.lostandfoundforwhut.common.utils.cos.ContentRecognizer;
 import com.whut.lostandfoundforwhut.common.utils.cos.ContentReviewer;
+import com.whut.lostandfoundforwhut.common.utils.cos.ImageProcessor;
 import com.whut.lostandfoundforwhut.common.utils.image.ImageValidator;
 import com.whut.lostandfoundforwhut.mapper.ImageMapper;
 import com.whut.lostandfoundforwhut.model.entity.Image;
@@ -24,6 +25,7 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
@@ -40,21 +42,26 @@ public class ImageServiceImpl extends ServiceImpl<ImageMapper, Image> implements
     // 最大文件大小（字节）
     private Long maxFileSizeBytes;
 
-    // 自动注入COS客户端
+    // COS客户端
     @Autowired
     private COS cos;
-    // 自动注入内容审核器
+    // 内容审核器
     @Autowired
     private ContentReviewer contentReviewer;
-    // 自动注入内容识别器
+    // 内容识别器
     @Autowired
     private ContentRecognizer contentRecognizer;
+    // 图片处理器
+    @Autowired
+    private ImageProcessor imageProcessor;
 
     @Autowired
     private ImageMapper imageMapper;
 
     // 最小置信度
     private int CONTENT_RECOGNITION_MIN_CONFIDENCE = 60;
+    // 允许的图片扩展名列表
+    private List<String> allowedExtensions = Arrays.asList(".jpg", ".jpeg", ".png", ".gif");
 
     @PostConstruct
     public void init() {
@@ -107,8 +114,9 @@ public class ImageServiceImpl extends ServiceImpl<ImageMapper, Image> implements
             // 下载并保存图片
             List<Image> images = new ArrayList<>();
             for (String uniqueFilename : uniqueFilenames) {
+                // 下载并压缩图片
                 File filePath = new File(uploadDirFile, uniqueFilename);
-                cos.downloadFile(uniqueFilename, filePath);
+                imageProcessor.downloadAndProcessImage(uniqueFilename, filePath);
                 // 创建图片对象
                 Image image = new Image();
                 image.setUrl(uniqueFilename);
@@ -238,7 +246,7 @@ public class ImageServiceImpl extends ServiceImpl<ImageMapper, Image> implements
             throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(), "文件不能为空");
         }
         // 验证文件是否为图片
-        String errorMessage = ImageValidator.validateImageFile(file);
+        String errorMessage = ImageValidator.validateImageFile(file, allowedExtensions);
         if (errorMessage != null) {
             throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(), errorMessage);
         }
