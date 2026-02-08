@@ -208,7 +208,7 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
 
         // 最后删除旧图片实体
         if (deleteImageIds != null && !deleteImageIds.isEmpty()) {
-            imageService.deleteImagesAndFiles(deleteImageIds);
+            imageService.deleteImagesByIds(deleteImageIds);
         }
 
         return existingItem;

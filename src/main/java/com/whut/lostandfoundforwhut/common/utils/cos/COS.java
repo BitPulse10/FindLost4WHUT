@@ -10,7 +10,7 @@ import com.qcloud.cos.model.PutObjectRequest;
 import com.qcloud.cos.model.PutObjectResult;
 import com.qcloud.cos.model.DeleteObjectsRequest.KeyVersion;
 import com.qcloud.cos.model.GetObjectRequest;
-import com.qcloud.cos.model.ObjectMetadata;
+import com.qcloud.cos.model.CannedAccessControlList;
 import com.qcloud.cos.model.DeleteObjectsRequest;
 import com.qcloud.cos.model.DeleteObjectsResult;
 import com.qcloud.cos.model.DeleteObjectsResult.DeletedObject;
@@ -27,8 +27,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.io.File;
-import java.net.URL;
-import java.util.Date;
 
 @Component
 public class COS {
@@ -76,6 +74,14 @@ public class COS {
     }
 
     /**
+     * 设置对象为公共读权限
+     * @param key COS 存储路径
+     */
+    public void setObjectPublicRead(String key) {
+        cosClient.setObjectAcl(bucketName, key, CannedAccessControlList.PublicRead);
+    }
+
+    /**
      * 上传本地文件
      * @param localFile 本地文件
      * @param key COS 存储路径
@@ -90,10 +96,8 @@ public class COS {
      * @param key COS 存储路径
      * @return 访问URL
      */
-    public String getObjectURL(String key) {
-        Date expiration = new Date(System.currentTimeMillis() + 3600L * 1000);
-        URL url = cosClient.generatePresignedUrl(bucketName, key, expiration);
-        return url.toString();
+    public String getObjectUrl(String key) {
+        return cosClient.getObjectUrl(bucketName, key).toString();
     }
 
     /**
@@ -113,34 +117,6 @@ public class COS {
     public void deleteObject(String key) {
         cosClient.deleteObject(bucketName, key);
     }
-
-    //  /**
-    //  * 上传目录下的所有文件
-    //  * @param directory 本地目录绝对路径
-    //  * @return 如果上传成功返回 true，否则返回 false
-    //  */
-    // public boolean uploadDir(File directory) {
-    //     if (!directory.isDirectory()) {
-    //         return true;
-    //     }
-    //
-    //     boolean success = true;
-    //     try {
-    //         MultipleFileUpload upload  = transferManager.uploadDirectory(bucketName,"",directory,false);
-    //         upload.waitForCompletion();
-    //     }catch (CosServiceException e) {
-    //         e.printStackTrace();
-    //         success = false;
-    //     } catch (CosClientException e) {
-    //         e.printStackTrace();
-    //         success = false;
-    //     } catch (InterruptedException e) {
-    //         e.printStackTrace();
-    //         success = false;
-    //     }
-    //
-    //     return success;
-    // }
 
     /**
      * 批量删除对象
@@ -176,12 +152,7 @@ public class COS {
      * @return 如果存在返回 true，否则返回 false
      */
     public boolean hasObject(String key) {
-        try {
-            ObjectMetadata metadata = cosClient.getObjectMetadata(bucketName, key);
-            return metadata != null;
-        } catch (Exception e) {
-            return false;
-        }
+        return cosClient.doesObjectExist(bucketName, key);
     }
 
     public String getBucketName() { return bucketName; }

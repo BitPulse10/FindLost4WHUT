@@ -57,7 +57,7 @@ public class ItemController {
             // 捕获异常后，删除上传的图片
             // if (itemDTO.getImageId() != null) {
             // List<Long> imageIds = Arrays.asList(itemDTO.getImageId());
-            // imageService.deleteImagesAndFiles(imageIds);
+            // imageService.deleteImagesByIds(imageIds);
             // }
 
             // 处理业务异常
@@ -104,7 +104,7 @@ public class ItemController {
                 deleteImageIds.addAll(oldImageIds);
             }
             if (deleteImageIds != null && !deleteImageIds.isEmpty()) {
-                imageService.deleteImagesAndFiles(deleteImageIds);
+                imageService.deleteImagesByIds(deleteImageIds);
             }
 
             // 处理业务异常

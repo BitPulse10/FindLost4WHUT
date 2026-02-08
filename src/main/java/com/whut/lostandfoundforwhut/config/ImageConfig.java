@@ -7,13 +7,12 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 @Configuration
 public class ImageConfig implements WebMvcConfigurer {
-    @Value("${app.upload.image.dir}")
-    private String imageUploadDir;
-
-    @Override
-    public void addResourceHandlers(ResourceHandlerRegistry registry) {
-        // 配置图片访问路径
-        registry.addResourceHandler("/images/**")
-                .addResourceLocations("file:" + imageUploadDir);
-    }
+    // @Value("${app.upload.image.dir}")
+    // private String imageUploadDir;
+    // @Override
+    // public void addResourceHandlers(ResourceHandlerRegistry registry) {
+    //     // 配置图片访问路径
+    //     registry.addResourceHandler("/images/**")
+    //             .addResourceLocations("file:" + imageUploadDir);
+    // }
 }
