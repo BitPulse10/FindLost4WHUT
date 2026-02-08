@@ -45,13 +45,6 @@ public interface IVectorService {
     void removeFromVectorDatabase(Long itemId);
 
     /**
-     * 从向量数据库中删除物品信息
-     *
-     * @param id 物品ID
-     */
-    public void deleteFromCollection(String id);
-
-    /**
      * 在向量数据库中搜索相似文本
      *
      * @param query      查询文本
