@@ -206,10 +206,10 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
         }
         existingItem.setTags(tagService.getTagNamesByItemId(itemId));
 
-        // // 最后删除旧图片实体
-        // if (deleteImageIds != null && !deleteImageIds.isEmpty()) {
-        //     imageService.deleteImagesByIds(deleteImageIds);
-        // }
+        // 最后删除旧图片实体
+        if (deleteImageIds != null && !deleteImageIds.isEmpty()) {
+            imageService.deleteImagesByIds(deleteImageIds);
+        }
 
         return existingItem;
     }
