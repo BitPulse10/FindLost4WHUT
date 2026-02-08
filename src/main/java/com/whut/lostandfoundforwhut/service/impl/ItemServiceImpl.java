@@ -198,7 +198,7 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
         }
 
         // 更新向量数据库中的物品描述
-        vectorService.updateVectorDatabase(existingItem);
+        vectorService.updateVectorDatabase(existingItem, null);
         // 仅在传入 tagText 时更新标签
         if (itemDTO.getTagText() != null) {
             List<String> tagNames = tagService.parseTagText(itemDTO.getTagText());
@@ -372,7 +372,7 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
     public List<Item> searchSimilarItems(String query, int maxResults) {
         try {
             // 使用向量数据库搜索相似的物品ID
-            List<String> similarItemIds = vectorService.searchInCollection(query, maxResults);
+            List<String> similarItemIds = vectorService.searchInCollection(query, null, maxResults);
 
             // 将向量数据库返回的ID转换为Long类型的物品ID
             List<Long> itemIds = similarItemIds.stream()

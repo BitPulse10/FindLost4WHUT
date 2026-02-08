@@ -1,17 +1,5 @@
 package com.whut.lostandfoundforwhut.service.impl;
 
-import com.alibaba.dashscope.embeddings.MultiModalEmbeddingParam;
-import com.alibaba.dashscope.embeddings.MultiModalEmbedding;
-import com.alibaba.dashscope.embeddings.MultiModalEmbeddingResult;
-import com.alibaba.dashscope.embeddings.MultiModalEmbeddingItemBase;
-import com.alibaba.dashscope.embeddings.MultiModalEmbeddingItemText;
-import com.alibaba.dashscope.embeddings.MultiModalEmbeddingItemImage;
-import com.alibaba.dashscope.embeddings.TextEmbedding;
-import com.alibaba.dashscope.embeddings.TextEmbeddingParam;
-import com.alibaba.dashscope.embeddings.TextEmbeddingResult;
-import com.alibaba.dashscope.embeddings.TextEmbeddingResultItem;
-import com.alibaba.dashscope.exception.NoApiKeyException;
-import com.alibaba.dashscope.exception.UploadFileException;
 import com.whut.lostandfoundforwhut.service.IVectorService;
 import dev.langchain4j.data.embedding.Embedding;
 import dev.langchain4j.data.segment.TextSegment;
@@ -24,18 +12,18 @@ import org.springframework.stereotype.Service;
 
 import jakarta.annotation.PostConstruct;
 
-import java.io.FileInputStream;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Arrays;
-import java.util.Base64;
-import java.util.stream.Collectors;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.net.URI;
+import java.time.Duration;
 
-import com.whut.lostandfoundforwhut.model.dto.TextEmbeddingDTO;
 import com.whut.lostandfoundforwhut.model.entity.Item;
 
 /**
- * 向量数据库服务实现 - 仅支持ChromaDB存储
+ * 向量数据库服务实现L
  */
 @Slf4j
 @Service
@@ -55,9 +43,14 @@ public class VectorServiceImpl implements IVectorService {
 
     private ChromaEmbeddingStore embeddingStore;
     private boolean initialized = false; // 标记是否已初始化
+    private HttpClient httpClient;
 
     @PostConstruct
     public void initializeCollection() {
+        // 初始化HTTP客户端
+        this.httpClient = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(30))
+                .build();
         // 检查是否启用向量存储
         if (!vectorStoreEnabled) {
             log.info("向量数据库功能已禁用 (app.vector-store.enabled=false)");
@@ -66,11 +59,17 @@ public class VectorServiceImpl implements IVectorService {
         }
 
         try {
-            // 创建 ChromaDB 存储实例
+            // 删除可能存在的旧集合（解决维度不匹配问题）
+            deleteExistingCollection();
+
+            // 创建 ChromaDB 存储实例（1024维度）
             this.embeddingStore = ChromaEmbeddingStore.builder()
                     .baseUrl(chromaUrl)
                     .collectionName(collectionName)
                     .build();
+
+            // 强制初始化集合 - 通过添加一个测试向量来确保集合被创建
+            initializeChromaCollection();
 
             this.initialized = true;
             log.info("ChromaDB向量数据库初始化成功，集合名称：{}，连接地址：{}", collectionName, chromaUrl);
@@ -94,64 +93,6 @@ public class VectorServiceImpl implements IVectorService {
     }
 
     @Override
-    public void addTextToCollection(TextEmbeddingDTO textEmbeddingDTO) {
-        if (!vectorStoreEnabled) {
-            log.debug("向量数据库功能已禁用，跳过添加文本到集合: {}", textEmbeddingDTO.getId());
-            return;
-        }
-
-        checkInitialized();
-
-        try {
-            String id = textEmbeddingDTO.getId();
-            String text = textEmbeddingDTO.getText();
-
-            if (id == null || id.trim().isEmpty()) {
-                throw new IllegalArgumentException("文本嵌入ID不能为空");
-            }
-            if (text == null || text.trim().isEmpty()) {
-                throw new IllegalArgumentException("文本内容不能为空");
-            }
-
-            Embedding embedding = generateEmbedding(text);
-
-            // 尝试先删除已存在的ID，以避免ID冲突
-            try {
-                embeddingStore.removeAll(List.of(id));
-            } catch (Exception e) {
-                // 如果删除失败，继续添加
-                log.warn("删除已存在的向量ID失败，将继续添加: {}", id, e);
-            }
-
-            embeddingStore.add(id, embedding);
-
-            log.info("文本已添加到向量数据库，ID：{}", id);
-        } catch (IllegalArgumentException e) {
-            log.error("添加文本到向量数据库失败，参数错误：{}", e.getMessage());
-            throw new RuntimeException("添加文本到向量数据库失败，参数错误", e);
-        } catch (Exception e) {
-            log.error("添加文本到向量数据库失败，ID：{}", textEmbeddingDTO.getId(), e);
-            throw new RuntimeException("添加文本到向量数据库失败", e);
-        }
-    }
-
-    @Override
-    public void addToVectorDatabase(Item item) {
-        try {
-            String itemDescription = item.getDescription();
-            TextEmbeddingDTO textEmbeddingDTO = TextEmbeddingDTO.builder()
-                    .id("item_" + item.getId())
-                    .text(itemDescription)
-                    .build();
-            addTextToCollection(textEmbeddingDTO);
-            log.info("物品信息已添加到向量数据库，ID：{}", item.getId());
-        } catch (Exception e) {
-            log.error("添加到向量数据库时发生异常，物品ID：{}", item.getId(), e);
-            // 这里不抛出异常，因为向量数据库的失败不应影响主业务流程
-        }
-    }
-
-    @Override
     public void addImagesToVectorDatabase(Item item, String imageUrl) {
         try {
             if (imageUrl != null && !imageUrl.trim().isEmpty()) {
@@ -167,16 +108,25 @@ public class VectorServiceImpl implements IVectorService {
                 Embedding embedding = generateMultimodalEmbedding(itemDescription, imageUrl);
 
                 if (embedding != null) {
+                    // 确保集合存在
+                    ensureCollectionExists();
+
                     // 尝试先删除已存在的ID
                     try {
                         embeddingStore.removeAll(List.of(itemId));
+                        log.debug("已删除已存在的向量ID: {}", itemId);
                     } catch (Exception e) {
-                        log.warn("删除已存在的向量ID失败，将继续添加: {}", itemId, e);
+                        // 如果删除失败（比如集合不存在），记录日志但继续执行
+                        log.debug("删除已存在的向量ID时出现预期异常（可能是首次添加）: {}", itemId);
                     }
 
-                    embeddingStore.add(itemId, embedding);
-
-                    log.info("物品单张图片多模态信息已添加到向量数据库，物品ID：{}", item.getId());
+                    try {
+                        embeddingStore.add(itemId, embedding);
+                        log.info("物品单张图片多模态信息已添加到向量数据库，物品ID：{}", item.getId());
+                    } catch (Exception e) {
+                        log.error("添加向量数据失败，物品ID：{}", item.getId(), e);
+                        // 这里也不抛出异常，因为向量数据库的失败不应影响主业务流程
+                    }
                 }
             }
         } catch (Exception e) {
@@ -201,16 +151,25 @@ public class VectorServiceImpl implements IVectorService {
                 Embedding embedding = generateMultimodalEmbeddings(itemDescription, imageUrls);
 
                 if (embedding != null) {
+                    // 确保集合存在
+                    ensureCollectionExists();
+
                     // 尝试先删除已存在的ID
                     try {
                         embeddingStore.removeAll(List.of(itemId));
+                        log.debug("已删除已存在的向量ID: {}", itemId);
                     } catch (Exception e) {
-                        log.warn("删除已存在的向量ID失败，将继续添加: {}", itemId, e);
+                        // 如果删除失败（比如集合不存在），记录日志但继续执行
+                        log.debug("删除已存在的向量ID时出现预期异常（可能是首次添加）: {}", itemId);
                     }
 
-                    embeddingStore.add(itemId, embedding);
-
-                    log.info("物品多模态信息已添加到向量数据库，物品ID：{}，图片数量：{}", item.getId(), imageUrls.size());
+                    try {
+                        embeddingStore.add(itemId, embedding);
+                        log.info("物品多模态信息已添加到向量数据库，物品ID：{}，图片数量：{}", item.getId(), imageUrls.size());
+                    } catch (Exception e) {
+                        log.error("添加向量数据失败，物品ID：{}", item.getId(), e);
+                        // 这里也不抛出异常，因为向量数据库的失败不应影响主业务流程
+                    }
                 }
             }
         } catch (Exception e) {
@@ -220,20 +179,17 @@ public class VectorServiceImpl implements IVectorService {
     }
 
     @Override
-    public void updateVectorDatabase(Item item) {
+    public void updateVectorDatabase(Item item, String imageUrl) {
         try {
             String itemDescription = item.getDescription() != null ? item.getDescription() : "未提供描述";
             // 先删除旧的向量数据
             deleteFromCollection("item_" + item.getId());
 
-            TextEmbeddingDTO textEmbeddingDTO = TextEmbeddingDTO.builder()
-                    .id("item_" + item.getId())
-                    .text(itemDescription)
-                    .build();
-            addTextToCollection(textEmbeddingDTO);
-            log.info("向量数据库中物品信息已更新，ID：{}", item.getId());
+            addImagesToVectorDatabase(item, imageUrl);
+
+            log.info("向量数据库中物品信息已更新，ID：{}，图片URL：{}", item.getId(), imageUrl);
         } catch (Exception e) {
-            log.error("更新向量数据库时发生异常，物品ID：{}", item.getId(), e);
+            log.error("更新向量数据库时发生异常，物品ID：{}，图片URL：{}", item.getId(), imageUrl, e);
             // 这里不抛出异常，因为向量数据库的失败不应影响主业务流程
         }
     }
@@ -250,8 +206,7 @@ public class VectorServiceImpl implements IVectorService {
     }
 
     @Override
-    @SuppressWarnings("deprecation")
-    public List<String> searchInCollection(String query, int maxResults) {
+    public List<String> searchInCollection(String query, String imageUrl, int maxResults) {
         if (!vectorStoreEnabled) {
             log.debug("向量数据库功能已禁用，返回空搜索结果");
             return List.of();
@@ -270,7 +225,14 @@ public class VectorServiceImpl implements IVectorService {
                 return List.of();
             }
 
-            Embedding queryEmbedding = generateEmbedding(query);
+            Embedding queryEmbedding;
+            if (imageUrl != null && !imageUrl.trim().isEmpty()) {
+                // 使用多模态嵌入（文本+图片）
+                queryEmbedding = generateMultimodalEmbedding(query, imageUrl);
+            } else {
+                // 只使用文本嵌入
+                queryEmbedding = generateEmbedding(query);
+            }
 
             List<EmbeddingMatch<TextSegment>> relevant = embeddingStore.findRelevant(queryEmbedding, maxResults);
 
@@ -278,16 +240,15 @@ public class VectorServiceImpl implements IVectorService {
             for (EmbeddingMatch<TextSegment> match : relevant) {
                 results.add(match.embeddingId());
             }
-            log.info("向量搜索完成，查询：{}，返回结果数量：{}", query, results.size());
+            log.info("向量搜索完成，查询：{}，图片URL：{}，返回结果数量：{}", query, imageUrl, results.size());
             return results;
         } catch (Exception e) {
-            log.error("向量搜索失败，查询：{}", query, e);
+            log.error("向量搜索失败，查询：{}，图片URL：{}", query, imageUrl, e);
             throw new RuntimeException("向量搜索失败", e);
         }
     }
 
     @Override
-    @SuppressWarnings("deprecation")
     public int getCollectionSize() {
         if (!vectorStoreEnabled) {
             log.debug("向量数据库功能已禁用，返回0");
@@ -362,7 +323,7 @@ public class VectorServiceImpl implements IVectorService {
     }
 
     /**
-     * 生成文本的嵌入向量
+     * 生成文本的嵌入向量（简化版本，仅使用简单嵌入）
      * 
      * @param text 输入文本
      * @return 嵌入向量
@@ -370,42 +331,12 @@ public class VectorServiceImpl implements IVectorService {
     public Embedding generateEmbedding(String text) {
         if (text == null || text.trim().isEmpty()) {
             log.warn("输入文本为空，使用默认嵌入向量");
-            return Embedding.from(new float[384]); // 返回零向量
+            return Embedding.from(new float[1024]); // 返回零向量，使用1024维以匹配DashScope模型
         }
 
-        if (dashScopeApiKey == null || dashScopeApiKey.trim().isEmpty()) {
-            log.warn("DashScope API密钥未配置/为空，将使用简化嵌入向量（仅用于演示）");
-            return Embedding.from(computeSimpleEmbedding(text));
-        }
-
-        try {
-            TextEmbeddingParam param = TextEmbeddingParam
-                    .builder()
-                    .apiKey(dashScopeApiKey)
-                    .model("text-embedding-v1")
-                    .texts(Arrays.asList(text))
-                    .build();
-            TextEmbedding textEmbedding = new TextEmbedding();
-            TextEmbeddingResult result = textEmbedding.call(param);
-            List<TextEmbeddingResultItem> items = result.getOutput().getEmbeddings();
-            if (items != null && !items.isEmpty()) {
-                List<Double> vector = items.get(0).getEmbedding();
-                List<Float> floatVector = vector.stream()
-                        .map(Double::floatValue)
-                        .collect(Collectors.toList());
-                float[] embeddingArray = new float[floatVector.size()];
-                for (int i = 0; i < floatVector.size(); i++) {
-                    embeddingArray[i] = floatVector.get(i);
-                }
-                return Embedding.from(embeddingArray);
-            } else {
-                log.warn("向量结果为空，使用简化嵌入向量");
-                return Embedding.from(computeSimpleEmbedding(text));
-            }
-        } catch (Exception e) {
-            log.error("调用DashScope API失败，使用简化嵌入向量。文本长度：{}", text.length(), e);
-            return Embedding.from(computeSimpleEmbedding(text));
-        }
+        // 直接使用简化嵌入向量（移除了DashScope TextEmbedding API调用）
+        log.debug("使用简化嵌入向量处理文本");
+        return Embedding.from(computeSimpleEmbedding(text));
     }
 
     /**
@@ -426,18 +357,18 @@ public class VectorServiceImpl implements IVectorService {
             return Embedding.from(computeSimpleEmbedding(combinedText));
         }
 
-        // 使用SDK方法
+        // 使用Http方法
         try {
-            Embedding sdkResult = generateMultimodalEmbeddingWithSDK(text, imageUrl);
-            if (sdkResult != null) {
-                log.debug("单图片多模态嵌入生成成功（SDK方式）");
-                return sdkResult;
+            Embedding httpResult = generateMultimodalEmbeddingViaHttp(text, imageUrl);
+            if (httpResult != null) {
+                log.debug("单图片多模态嵌入生成成功（Http方式）");
+                return httpResult;
             }
         } catch (Exception e) {
-            log.warn("使用SDK生成单图片多模态嵌入失败: {}", e.getMessage());
+            log.warn("使用HTTP生成单图片多模态嵌入失败: {}", e.getMessage());
         }
 
-        // 如果SDK方法失败，返回简化嵌入向量
+        // 如果Http方法失败，返回简化嵌入向量
         log.warn("单图片多模态向量结果为空，使用简化嵌入向量");
         String combinedText = text;
         if (imageUrl != null && !imageUrl.trim().isEmpty()) {
@@ -448,10 +379,10 @@ public class VectorServiceImpl implements IVectorService {
 
     /**
      * 生成多模态嵌入向量（文本+图像列表）
-     * 优先使用DashScope SDK，失败时回退到HTTP API
+     * 使用HTTP API方式
      * 
-     * @param text        输入文本
-     * @param base64Image Base64编码的图像数据
+     * @param text      输入文本
+     * @param imageUrls 图像数据
      * @return 嵌入向量
      */
     public Embedding generateMultimodalEmbeddings(String text, List<String> imageUrls) {
@@ -465,19 +396,19 @@ public class VectorServiceImpl implements IVectorService {
             return Embedding.from(computeSimpleEmbedding(combinedText));
         }
 
-        // 使用SDK方法
+        // 使用HTTP方法处理多张图片
         try {
-            Embedding sdkResult = generateMultimodalEmbeddingWithSDK(text, imageUrls);
-            if (sdkResult != null) {
-                log.debug("多模态嵌入生成成功（SDK方式）");
-                return sdkResult;
+            Embedding httpResult = generateMultimodalEmbeddingsViaHttp(text, imageUrls);
+            if (httpResult != null) {
+                log.debug("多图片多模态嵌入生成成功（HTTP方式）");
+                return httpResult;
             }
         } catch (Exception e) {
-            log.warn("使用SDK生成多模态嵌入失败: {}", e.getMessage());
+            log.warn("使用HTTP生成多图片多模态嵌入失败: {}", e.getMessage());
         }
 
-        // 如果SDK方法失败，返回简化嵌入向量
-        log.warn("多模态向量结果为空，使用简化嵌入向量");
+        // 如果HTTP方法失败，返回简化嵌入向量
+        log.warn("多图片多模态向量结果为空，使用简化嵌入向量");
         String combinedText = text;
         if (imageUrls != null && !imageUrls.isEmpty()) {
             combinedText += String.join(" ", imageUrls);
@@ -486,244 +417,204 @@ public class VectorServiceImpl implements IVectorService {
     }
 
     /**
-     * 使用DashScope SDK生成多模态嵌入向量（单张图片版本）
-     * 
-     * @param text     输入文本
-     * @param imageUrl 图片URL
-     * @return 嵌入向量
+     * 通过HTTP API生成多模态嵌入向量（单张图片版本）
      */
-    private Embedding generateMultimodalEmbeddingWithSDK(String text, String imageUrl)
-            throws UploadFileException, NoApiKeyException {
+    private Embedding generateMultimodalEmbeddingViaHttp(String text, String imageUrl) {
+        try {
+            // 构建API请求体
+            StringBuilder requestBody = new StringBuilder();
+            requestBody.append("{");
+            requestBody.append("\"model\":\"multimodal-embedding-v1\",");
+            requestBody.append("\"input\":{");
+            requestBody.append("\"contents\":[");
+            requestBody.append("{");
+            requestBody.append("\"text\":\"").append(text != null ? text.replace("\"", "\\\"") : "").append("\"");
 
-        List<MultiModalEmbeddingItemBase> contents = new ArrayList<>();
-
-        // 添加文本内容
-        if (text != null && !text.trim().isEmpty()) {
-            MultiModalEmbeddingItemText textContent = new MultiModalEmbeddingItemText(text);
-            contents.add(textContent);
-        }
-        System.out.println("添加文本内容: " + contents);
-
-        // 添加单张图像内容
-        if (imageUrl != null && !imageUrl.trim().isEmpty()) {
-            try {
-                // 将图片URL转换为Base64
-                log.debug("开始转换图片: {}", imageUrl);
-                String base64Image = imageUrlToBase64(imageUrl);
-                if (base64Image != null && !base64Image.isEmpty()) {
-                    // 提取纯Base64数据（去除data:image/...;base64,前缀）
-                    String pureBase64 = base64Image;
-                    if (base64Image.startsWith("data:image/")) {
-                        int commaIndex = base64Image.indexOf(",");
-                        if (commaIndex > 0) {
-                            pureBase64 = base64Image.substring(commaIndex + 1);
-                        }
-                    }
-
-                    MultiModalEmbeddingItemImage imageContent = new MultiModalEmbeddingItemImage(pureBase64);
-                    contents.add(imageContent);
-                    log.debug("成功添加图片内容到多模态内容列表");
-                } else {
-                    log.warn("转换图片到Base64失败，结果为空: {}", imageUrl);
-                }
-            } catch (Exception e) {
-                log.warn("转换图片URL到Base64失败: {}", imageUrl, e);
+            if (imageUrl != null && !imageUrl.trim().isEmpty()) {
+                requestBody.append(",\"image\":\"").append(imageUrl.replace("\"", "\\\"")).append("\"");
             }
-        }
 
-        if (contents.isEmpty()) {
-            log.warn("多模态内容为空，无法生成嵌入向量");
-            return null;
-        }
+            requestBody.append("}");
+            requestBody.append("]}");
+            requestBody.append(",\"parameters\":{");
+            requestBody.append("\"output_type\":\"dense\",");
+            requestBody.append("\"fps\":0.5");
+            requestBody.append("}}");
 
-        // 检查API密钥是否有效
-        if (dashScopeApiKey == null || dashScopeApiKey.trim().isEmpty()) {
-            log.warn("DashScope API密钥未配置");
-            throw new NoApiKeyException();
-        }
+            String jsonBody = requestBody.toString();
+            log.info("HTTP请求体: {}", jsonBody);
 
-        log.debug("准备调用DashScope API，模型: tongyi-embedding-vision-plus，内容数量: {}", contents.size());
+            // 构建HTTP请求
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(
+                            "https://dashscope.aliyuncs.com/api/v1/services/embeddings/multimodal-embedding/multimodal-embedding"))
+                    .header("Authorization", "Bearer " + dashScopeApiKey)
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(jsonBody))
+                    .timeout(Duration.ofSeconds(30))
+                    .build();
 
-        // 构建参数 - 使用正确的参数格式
-        MultiModalEmbeddingParam param = MultiModalEmbeddingParam.builder()
-                .apiKey(dashScopeApiKey)
-                .model("tongyi-embedding-vision-plus") // 使用正确的模型名称，与Python示例保持一致
-                .contents(contents)
-                .build();
+            // 发送请求
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
 
-        // 调用API
-        MultiModalEmbedding multiModalEmbedding = new MultiModalEmbedding();
-        MultiModalEmbeddingResult result = multiModalEmbedding.call(param);
+            log.info("HTTP响应状态码: {}", response.statusCode());
 
-        // 检查API调用结果
-        if (result == null) {
-            log.warn("DashScope API调用失败，返回结果为空");
-            return null;
-        }
+            if (response.statusCode() == 200) {
+                String responseBody = response.body();
+                log.debug("HTTP响应体: {}", responseBody);
 
-        // 解析结果
-        if (result.getOutput() != null) {
-            try {
-                // 直接访问output中的embedding字段
-                Object output = result.getOutput();
+                // 解析响应中的embeddings数组 - DashScope multimodal-embedding-v1返回多个embedding对象
+                int embeddingsStart = responseBody.indexOf("\"embeddings\":[");
+                if (embeddingsStart != -1) {
+                    // 找到embeddings数组的结束位置
+                    int embeddingsEnd = responseBody.lastIndexOf("]");
+                    if (embeddingsEnd != -1) {
+                        String embeddingsPart = responseBody.substring(embeddingsStart + 14, embeddingsEnd);
 
-                // 尝试获取embedding字段
-                java.lang.reflect.Method getEmbeddingMethod = output.getClass().getMethod("getEmbedding");
-                Object embeddingObj = getEmbeddingMethod.invoke(output);
+                        // 提取第一个embedding（可以是text、image或video类型的embedding）
+                        int firstEmbeddingStart = embeddingsPart.indexOf("\"embedding\":[");
+                        if (firstEmbeddingStart != -1) {
+                            firstEmbeddingStart = embeddingsPart.indexOf("[", firstEmbeddingStart);
+                            int firstEmbeddingEnd = findMatchingBracket(embeddingsPart, firstEmbeddingStart);
+                            if (firstEmbeddingEnd != -1) {
+                                String embeddingStr = embeddingsPart.substring(firstEmbeddingStart + 1,
+                                        firstEmbeddingEnd);
+                                String[] values = embeddingStr.split(",");
 
-                if (embeddingObj instanceof List) {
-                    List<?> embeddingList = (List<?>) embeddingObj;
-                    if (!embeddingList.isEmpty()) {
-                        float[] embeddingArray = new float[embeddingList.size()];
-                        for (int i = 0; i < embeddingList.size(); i++) {
-                            Object value = embeddingList.get(i);
-                            if (value instanceof Number) {
-                                embeddingArray[i] = ((Number) value).floatValue();
-                            } else {
-                                log.warn("嵌入向量中包含非数字值: {}", value);
-                                return null;
+                                float[] embeddingArray = new float[values.length];
+                                for (int i = 0; i < values.length; i++) {
+                                    try {
+                                        embeddingArray[i] = Float.parseFloat(values[i].trim());
+                                    } catch (NumberFormatException e) {
+                                        log.warn("解析嵌入向量数值失败: {}", values[i]);
+                                        return null;
+                                    }
+                                }
+
+                                log.info("通过HTTP API成功生成单图片多模态嵌入向量，维度: {}", embeddingArray.length);
+                                return Embedding.from(embeddingArray);
                             }
                         }
-                        log.debug("成功生成多模态嵌入向量，维度: {}", embeddingArray.length);
-                        return Embedding.from(embeddingArray);
                     }
                 }
-            } catch (Exception e) {
-                log.warn("从SDK结果中直接提取嵌入向量时发生异常: {}", e.getMessage());
-                // 回退到反射方式
-                Embedding embedding = extractEmbeddingFromResult(result);
-                if (embedding != null) {
-                    return embedding;
-                }
-            }
-        } else {
-            log.warn("SDK返回的结果中output字段为空");
-        }
 
-        log.warn("SDK返回的单图片多模态嵌入结果解析失败");
-        return null;
+                log.warn("无法从HTTP响应中提取嵌入向量");
+                return null;
+            } else {
+                log.warn("HTTP API调用失败，状态码: {}，响应: {}", response.statusCode(), response.body());
+                return null;
+            }
+
+        } catch (Exception e) {
+            log.warn("通过HTTP API生成多模态嵌入向量时发生异常: {}", e.getMessage(), e);
+            return null;
+        }
     }
 
     /**
-     * 使用DashScope SDK生成多模态嵌入向量（多张图片版本）
-     * 
-     * @param text      输入文本
-     * @param imageUrls 图片URL列表
-     * @return 嵌入向量
+     * 通过HTTP API生成多模态嵌入向量（多张图片版本）
      */
-    private Embedding generateMultimodalEmbeddingWithSDK(String text, List<String> imageUrls)
-            throws UploadFileException, NoApiKeyException {
+    private Embedding generateMultimodalEmbeddingsViaHttp(String text, List<String> imageUrls) {
+        try {
+            // 构建API请求体
+            StringBuilder requestBody = new StringBuilder();
+            requestBody.append("{");
+            requestBody.append("\"model\":\"multimodal-embedding-v1\",");
+            requestBody.append("\"input\":{");
+            requestBody.append("\"contents\":[");
 
-        List<MultiModalEmbeddingItemBase> contents = new ArrayList<>();
+            // 添加文本内容
+            if (text != null && !text.trim().isEmpty()) {
+                requestBody.append("{\"text\":\"").append(text.replace("\"", "\\\"")).append("\"}");
+                if (imageUrls != null && !imageUrls.isEmpty()) {
+                    requestBody.append(",");
+                }
+            }
 
-        // 添加文本内容
-        if (text != null && !text.trim().isEmpty()) {
-            MultiModalEmbeddingItemText textContent = new MultiModalEmbeddingItemText(text);
-            contents.add(textContent);
-        }
+            // 添加图片内容
+            if (imageUrls != null && !imageUrls.isEmpty()) {
+                for (int i = 0; i < imageUrls.size(); i++) {
+                    String imageUrl = imageUrls.get(i);
+                    requestBody.append("{\"image\":\"").append(imageUrl.replace("\"", "\\\"")).append("\"}");
+                    if (i < imageUrls.size() - 1) {
+                        requestBody.append(",");
+                    }
+                }
+            }
 
-        // 添加多张图像内容
-        if (imageUrls != null && !imageUrls.isEmpty()) {
-            for (String imageUrl : imageUrls) {
-                if (imageUrl != null && !imageUrl.trim().isEmpty()) {
-                    try {
-                        // 将图片URL转换为Base64
-                        log.debug("开始转换图片: {}", imageUrl);
-                        String base64Image = imageUrlToBase64(imageUrl);
-                        if (base64Image != null && !base64Image.isEmpty()) {
-                            // 提取纯Base64数据（去除data:image/...;base64,前缀）
-                            String pureBase64 = base64Image;
-                            if (base64Image.startsWith("data:image/")) {
-                                int commaIndex = base64Image.indexOf(",");
-                                if (commaIndex > 0) {
-                                    pureBase64 = base64Image.substring(commaIndex + 1);
+            requestBody.append("]}");
+            requestBody.append(",\"parameters\":{");
+            requestBody.append("\"output_type\":\"dense\",");
+            requestBody.append("\"fps\":0.5");
+            requestBody.append("}}");
+
+            String jsonBody = requestBody.toString();
+            log.info("HTTP请求体（多图片）: {}", jsonBody);
+
+            // 构建HTTP请求
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(
+                            "https://dashscope.aliyuncs.com/api/v1/services/embeddings/multimodal-embedding/multimodal-embedding"))
+                    .header("Authorization", "Bearer " + dashScopeApiKey)
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(jsonBody))
+                    .timeout(Duration.ofSeconds(30))
+                    .build();
+
+            // 发送请求
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+            log.info("HTTP响应状态码（多图片）: {}", response.statusCode());
+
+            if (response.statusCode() == 200) {
+                String responseBody = response.body();
+                log.debug("HTTP响应体（多图片）: {}", responseBody);
+
+                // 解析响应中的embeddings数组
+                int embeddingsStart = responseBody.indexOf("\"embeddings\":[");
+                if (embeddingsStart != -1) {
+                    int embeddingsEnd = responseBody.lastIndexOf("]");
+                    if (embeddingsEnd != -1) {
+                        String embeddingsPart = responseBody.substring(embeddingsStart + 14, embeddingsEnd);
+
+                        // 提取第一个embedding
+                        int firstEmbeddingStart = embeddingsPart.indexOf("\"embedding\":[");
+                        if (firstEmbeddingStart != -1) {
+                            firstEmbeddingStart = embeddingsPart.indexOf("[", firstEmbeddingStart);
+                            int firstEmbeddingEnd = findMatchingBracket(embeddingsPart, firstEmbeddingStart);
+                            if (firstEmbeddingEnd != -1) {
+                                String embeddingStr = embeddingsPart.substring(firstEmbeddingStart + 1,
+                                        firstEmbeddingEnd);
+                                String[] values = embeddingStr.split(",");
+
+                                float[] embeddingArray = new float[values.length];
+                                for (int i = 0; i < values.length; i++) {
+                                    try {
+                                        embeddingArray[i] = Float.parseFloat(values[i].trim());
+                                    } catch (NumberFormatException e) {
+                                        log.warn("解析嵌入向量数值失败: {}", values[i]);
+                                        return null;
+                                    }
                                 }
-                            }
 
-                            MultiModalEmbeddingItemImage imageContent = new MultiModalEmbeddingItemImage(pureBase64);
-                            contents.add(imageContent);
-                            log.debug("成功添加图片内容到多模态内容列表");
-                        } else {
-                            log.warn("转换图片到Base64失败，结果为空: {}", imageUrl);
-                        }
-                    } catch (Exception e) {
-                        log.warn("转换图片URL到Base64失败: {}", imageUrl, e);
-                    }
-                }
-            }
-        }
-
-        if (contents.isEmpty()) {
-            log.warn("多模态内容为空，无法生成嵌入向量");
-            return null;
-        }
-
-        // 检查API密钥是否有效
-        if (dashScopeApiKey == null || dashScopeApiKey.trim().isEmpty()) {
-            log.warn("DashScope API密钥未配置");
-            throw new NoApiKeyException();
-        }
-
-        log.debug("准备调用DashScope API，模型: multimodal-embedding-v1，内容数量: {}", contents.size());
-
-        // 构建参数 - 使用正确的参数格式
-        MultiModalEmbeddingParam param = MultiModalEmbeddingParam.builder()
-                .apiKey(dashScopeApiKey)
-                .model("multimodal-embedding-v1") // 使用正确的模型名称
-                .contents(contents)
-                .build();
-
-        // 调用API
-        MultiModalEmbedding multiModalEmbedding = new MultiModalEmbedding();
-        MultiModalEmbeddingResult result = multiModalEmbedding.call(param);
-
-        // 检查API调用结果
-        if (result == null) {
-            log.warn("DashScope API调用失败，返回结果为空");
-            return null;
-        }
-
-        // 解析结果
-        if (result.getOutput() != null) {
-            try {
-                // 直接访问output中的embedding字段
-                Object output = result.getOutput();
-
-                // 尝试获取embedding字段
-                java.lang.reflect.Method getEmbeddingMethod = output.getClass().getMethod("getEmbedding");
-                Object embeddingObj = getEmbeddingMethod.invoke(output);
-
-                if (embeddingObj instanceof List) {
-                    List<?> embeddingList = (List<?>) embeddingObj;
-                    if (!embeddingList.isEmpty()) {
-                        float[] embeddingArray = new float[embeddingList.size()];
-                        for (int i = 0; i < embeddingList.size(); i++) {
-                            Object value = embeddingList.get(i);
-                            if (value instanceof Number) {
-                                embeddingArray[i] = ((Number) value).floatValue();
-                            } else {
-                                log.warn("嵌入向量中包含非数字值: {}", value);
-                                return null;
+                                log.info("通过HTTP API成功生成多图片多模态嵌入向量，维度: {}", embeddingArray.length);
+                                return Embedding.from(embeddingArray);
                             }
                         }
-                        log.debug("成功生成多模态嵌入向量，维度: {}", embeddingArray.length);
-                        return Embedding.from(embeddingArray);
                     }
                 }
-            } catch (Exception e) {
-                log.warn("从SDK结果中直接提取嵌入向量时发生异常: {}", e.getMessage());
-                // 回退到反射方式
-                Embedding embedding = extractEmbeddingFromResult(result);
-                if (embedding != null) {
-                    return embedding;
-                }
-            }
-        } else {
-            log.warn("SDK返回的结果中output字段为空");
-        }
 
-        log.warn("SDK返回的多模态嵌入结果解析失败");
-        return null;
+                log.warn("无法从HTTP响应中提取嵌入向量（多图片）");
+                return null;
+            } else {
+                log.warn("HTTP API调用失败（多图片），状态码: {}，响应: {}", response.statusCode(), response.body());
+                return null;
+            }
+
+        } catch (Exception e) {
+            log.warn("通过HTTP API生成多图片多模态嵌入向量时发生异常: {}", e.getMessage(), e);
+            return null;
+        }
     }
 
     /**
@@ -734,11 +625,11 @@ public class VectorServiceImpl implements IVectorService {
      */
     private float[] computeSimpleEmbedding(String text) {
         if (text == null || text.isEmpty()) {
-            return new float[1536]; // 修改为1536维以匹配ChromaDB集合要求
+            return new float[1024]; // 修改为1024维以匹配DashScope multimodal-embedding-v1模型要求
         }
 
         byte[] bytes = text.getBytes();
-        float[] vector = new float[1536]; // 修改为1536维以匹配ChromaDB集合要求
+        float[] vector = new float[1024]; // 修改为1024维以匹配DashScope multimodal-embedding-v1模型要求
 
         if (bytes.length == 0) {
             return vector;
@@ -765,223 +656,111 @@ public class VectorServiceImpl implements IVectorService {
     }
 
     /**
-     * 将图片文件转换为Base64格式
-     * 按照DashScope官方示例格式生成
-     *
-     * @param imagePath 图片文件路径
-     * @return Base64编码的图片字符串，格式为 "data:image/[format];base64,[base64_data]"
-     * @throws Exception 当文件不存在或读取失败时抛出异常
+     * 删除现有的ChromaDB集合（用于解决维度不匹配问题）
      */
-    public String imageToBase64(String imagePath) throws Exception {
+    private void deleteExistingCollection() {
         try {
-            byte[] imageBytes;
-            try (FileInputStream fis = new FileInputStream(imagePath)) {
-                imageBytes = fis.readAllBytes();
-            }
+            String deleteUrl = chromaUrl + "/api/v1/collections/" + collectionName;
+            HttpRequest deleteRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(deleteUrl))
+                    .DELETE()
+                    .timeout(Duration.ofSeconds(10))
+                    .build();
 
-            String imageData = Base64.getEncoder().encodeToString(imageBytes);
-
-            // 获取图片格式
-            String formatType;
-            String lowerImagePath = imagePath.toLowerCase();
-            if (lowerImagePath.endsWith(".png")) {
-                formatType = "png";
-            } else if (lowerImagePath.endsWith(".jpg") || lowerImagePath.endsWith(".jpeg")) {
-                formatType = "jpeg";
+            HttpResponse<String> response = httpClient.send(deleteRequest, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() == 200 || response.statusCode() == 404) {
+                log.info("成功删除现有集合: {} (状态码: {})", collectionName, response.statusCode());
             } else {
-                formatType = "jpeg"; // 默认格式
+                log.warn("删除集合时收到意外状态码: {}，响应: {}", response.statusCode(), response.body());
             }
-
-            // 构造正确的Base64格式，严格按照官方示例
-            return "data:image/" + formatType + ";base64," + imageData;
         } catch (Exception e) {
-            log.error("图片转Base64失败，路径：{}", imagePath, e);
-            throw new Exception("错误：图片转Base64失败：" + e.getMessage());
+            log.debug("删除现有集合时发生异常（可能是集合不存在）: {}", e.getMessage());
         }
     }
 
     /**
-     * 通过反射安全地从MultiModalEmbeddingResult中提取嵌入向量
+     * 查找字符串中匹配的括号位置
      * 
-     * @param result SDK返回的结果对象
-     * @return 嵌入向量，如果无法提取则返回null
+     * @param str        字符串
+     * @param startIndex 开始查找的位置（应指向第一个左括号）
+     * @return 匹配的右括号位置，未找到则返回-1
      */
-    private Embedding extractEmbeddingFromResult(MultiModalEmbeddingResult result) {
-        try {
-            // 尝试获取output对象
-            Object output = result.getOutput();
-            if (output == null) {
-                log.debug("SDK结果的output为null");
-                return null;
-            }
+    private int findMatchingBracket(String str, int startIndex) {
+        if (str == null || startIndex < 0 || startIndex >= str.length() || str.charAt(startIndex) != '[') {
+            return -1;
+        }
 
-            // 尝试常见的方法名来获取嵌入向量
-            String[] methodNames = { "getEmbeddings", "getEmbedding", "getResult", "getData", "getVectors" };
-            Class<?> outputClass = output.getClass();
-
-            for (String methodName : methodNames) {
-                try {
-                    java.lang.reflect.Method method = outputClass.getMethod(methodName);
-                    Object embeddingsObj = method.invoke(output);
-
-                    if (embeddingsObj instanceof List) {
-                        List<?> embeddingsList = (List<?>) embeddingsObj;
-                        if (!embeddingsList.isEmpty()) {
-                            Object firstItem = embeddingsList.get(0);
-                            if (firstItem instanceof List) {
-                                // 嵌入向量是List<Float>或List<Double>的形式
-                                List<?> vectorList = (List<?>) firstItem;
-                                if (!vectorList.isEmpty()) {
-                                    float[] embeddingArray = new float[vectorList.size()];
-                                    for (int i = 0; i < vectorList.size(); i++) {
-                                        Object value = vectorList.get(i);
-                                        if (value instanceof Number) {
-                                            embeddingArray[i] = ((Number) value).floatValue();
-                                        } else {
-                                            log.warn("嵌入向量中包含非数字值: {}", value);
-                                            return null;
-                                        }
-                                    }
-                                    return Embedding.from(embeddingArray);
-                                }
-                            } else if (firstItem instanceof Number) {
-                                // 嵌入向量是扁平化的List<Float>形式
-                                float[] embeddingArray = new float[embeddingsList.size()];
-                                for (int i = 0; i < embeddingsList.size(); i++) {
-                                    Object value = embeddingsList.get(i);
-                                    if (value instanceof Number) {
-                                        embeddingArray[i] = ((Number) value).floatValue();
-                                    } else {
-                                        log.warn("嵌入向量中包含非数字值: {}", value);
-                                        return null;
-                                    }
-                                }
-                                return Embedding.from(embeddingArray);
-                            }
-                        }
-                    }
-                } catch (NoSuchMethodException e) {
-                    // 方法不存在，继续尝试下一个
-                    continue;
-                } catch (Exception e) {
-                    log.debug("调用方法 {} 时发生异常: {}", methodName, e.getMessage());
+        int bracketCount = 0;
+        for (int i = startIndex; i < str.length(); i++) {
+            char c = str.charAt(i);
+            if (c == '[') {
+                bracketCount++;
+            } else if (c == ']') {
+                bracketCount--;
+                if (bracketCount == 0) {
+                    return i;
                 }
             }
+        }
 
-            log.debug("无法从SDK结果中提取有效的嵌入向量");
-            return null;
+        return -1; // 未找到匹配的右括号
+    }
 
+    /**
+     * 强制初始化ChromaDB集合
+     * 通过添加和删除一个测试向量来确保集合被正确创建
+     */
+    private void initializeChromaCollection() {
+        try {
+            // 创建一个测试向量来强制初始化集合
+            String testId = "init_test_" + System.currentTimeMillis();
+            float[] testVector = new float[1024];
+            testVector[0] = 1.0f; // 设置一个非零值
+
+            Embedding testEmbedding = Embedding.from(testVector);
+
+            // 添加测试向量
+            embeddingStore.add(testId, testEmbedding);
+            log.debug("测试向量已添加到集合中，ID: {}", testId);
+
+            // 立即删除测试向量
+            embeddingStore.removeAll(List.of(testId));
+            log.debug("测试向量已从集合中删除，ID: {}", testId);
+
+            log.info("ChromaDB集合初始化完成");
         } catch (Exception e) {
-            log.warn("反射提取嵌入向量时发生异常: {}", e.getMessage());
-            return null;
+            log.error("初始化ChromaDB集合时发生异常: {}", e.getMessage(), e);
+            throw new RuntimeException("ChromaDB集合初始化失败", e);
         }
     }
 
     /**
-     * 从远程URL下载图片并转换为Base64格式
-     *
-     * @param imageUrl 远程图片URL
-     * @return Base64编码的图片字符串，格式为 "data:image/[format];base64,[base64_data]"
-     * @throws Exception 当下载失败或转换失败时抛出异常
+     * 确保ChromaDB集合存在
+     * 如果集合不存在，则重新创建
      */
-    private String downloadAndConvertToBase64(String imageUrl) throws Exception {
+    private void ensureCollectionExists() {
         try {
-            java.net.URL url = new java.net.URL(imageUrl);
-            java.net.HttpURLConnection connection = (java.net.HttpURLConnection) url.openConnection();
-
-            // 设置请求头
-            connection.setRequestMethod("GET");
-            connection.setRequestProperty("User-Agent", "Mozilla/5.0 (compatible; Java HttpClient)");
-            connection.setConnectTimeout(10000); // 10秒连接超时
-            connection.setReadTimeout(30000); // 30秒读取超时
-
-            // 检查响应码
-            int responseCode = connection.getResponseCode();
-            if (responseCode != 200) {
-                throw new Exception("下载图片失败，响应码: " + responseCode);
-            }
-
-            // 读取图片数据
-            byte[] imageBytes = connection.getInputStream().readAllBytes();
-
-            // 获取图片格式（从URL后缀或Content-Type）
-            String formatType;
-            String lowerImageUrl = imageUrl.toLowerCase();
-            if (lowerImageUrl.endsWith(".png")) {
-                formatType = "png";
-            } else if (lowerImageUrl.endsWith(".jpg") || lowerImageUrl.endsWith(".jpeg")) {
-                formatType = "jpeg";
-            } else {
-                // 尝试从Content-Type获取
-                String contentType = connection.getContentType();
-                if (contentType != null) {
-                    if (contentType.contains("png")) {
-                        formatType = "png";
-                    } else if (contentType.contains("jpeg") || contentType.contains("jpg")) {
-                        formatType = "jpeg";
-                    } else {
-                        formatType = "jpeg"; // 默认格式
-                    }
-                } else {
-                    formatType = "jpeg"; // 默认格式
-                }
-            }
-
-            // 编码为Base64
-            String imageData = Base64.getEncoder().encodeToString(imageBytes);
-
-            // 构造正确的Base64格式
-            return "data:image/" + formatType + ";base64," + imageData;
-
+            // 尝试执行一个简单的查询来检查集合是否存在
+            Embedding dummyEmbedding = Embedding.from(new float[1024]);
+            embeddingStore.findRelevant(dummyEmbedding, 1);
+            log.debug("ChromaDB集合存在且可访问");
         } catch (Exception e) {
-            log.error("下载并转换远程图片失败，URL：{}", imageUrl, e);
-            throw new Exception("错误：下载并转换远程图片失败：" + e.getMessage());
+            log.warn("ChromaDB集合不存在或不可访问，正在重新创建: {}", e.getMessage());
+            try {
+                // 重新创建集合
+                this.embeddingStore = ChromaEmbeddingStore.builder()
+                        .baseUrl(chromaUrl)
+                        .collectionName(collectionName)
+                        .build();
+
+                // 强制初始化
+                initializeChromaCollection();
+                log.info("ChromaDB集合已重新创建");
+            } catch (Exception reCreateException) {
+                log.error("重新创建ChromaDB集合失败: {}", reCreateException.getMessage(), reCreateException);
+                throw new RuntimeException("无法确保ChromaDB集合存在", reCreateException);
+            }
         }
     }
 
-    /**
-     * 将图片URL转换为Base64格式
-     * 支持本地文件路径和远程URL
-     *
-     * @param imageUrl 图片URL（可以是本地文件名或远程URL）
-     * @return Base64编码的图片字符串，格式为 "data:image/[format];base64,[base64_data]"
-     * @throws Exception 当文件不存在或读取失败时抛出异常
-     */
-    private String imageUrlToBase64(String imageUrl) throws Exception {
-        try {
-            if (imageUrl == null || imageUrl.trim().isEmpty()) {
-                throw new Exception("图片URL不能为空");
-            }
-
-            log.debug("处理图片URL: {}", imageUrl);
-
-            // 检查是否为远程URL
-            if (imageUrl.startsWith("http://") || imageUrl.startsWith("https://")) {
-                // 远程URL，需要下载图片
-                log.debug("检测到远程URL，将下载图片: {}", imageUrl);
-                return downloadAndConvertToBase64(imageUrl);
-            } else {
-                // 本地文件路径，可能包含域名或协议部分需要清理
-                String cleanFileName;
-
-                // 如果URL包含域名部分（如 http://example.com/uploads/image/filename.png），提取文件名
-                if (imageUrl.contains("/")) {
-                    // 提取最后一个斜杠后的文件名
-                    cleanFileName = imageUrl.substring(imageUrl.lastIndexOf('/') + 1);
-                    log.debug("从完整路径中提取文件名: {} -> {}", imageUrl, cleanFileName);
-                } else {
-                    // 纯文件名
-                    cleanFileName = imageUrl;
-                }
-
-                // 构造完整路径
-                String imagePath = System.getProperty("user.dir") + "/uploads/image/" + cleanFileName;
-                log.debug("处理本地图片文件: {} -> {}", cleanFileName, imagePath);
-                return imageToBase64(imagePath);
-            }
-        } catch (Exception e) {
-            log.error("处理图片失败: {}", imageUrl, e);
-            throw e;
-        }
-    }
 }

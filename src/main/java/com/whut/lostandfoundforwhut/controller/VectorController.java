@@ -2,7 +2,7 @@ package com.whut.lostandfoundforwhut.controller;
 
 import com.whut.lostandfoundforwhut.common.enums.ResponseCode;
 import com.whut.lostandfoundforwhut.common.result.Result;
-import com.whut.lostandfoundforwhut.model.dto.TextEmbeddingDTO;
+
 import com.whut.lostandfoundforwhut.service.IVectorService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -28,31 +28,33 @@ public class VectorController {
 
     private final IVectorService vectorService;
 
-    @PostMapping("/add-text")
-    @Operation(summary = "添加文本到向量数据库", description = "将文本添加到向量数据库中进行索引")
-    public Result<Void> addTextToCollection(@RequestBody TextEmbeddingDTO textEmbeddingDTO) {
-        try {
-            vectorService.addTextToCollection(textEmbeddingDTO);
-            log.info("成功添加文本到向量数据库，ID：{}", textEmbeddingDTO.getId());
-            return Result.success(null);
-        } catch (Exception e) {
-            log.error("添加文本到向量数据库失败，ID：{}", textEmbeddingDTO.getId(), e);
-            return Result.fail(ResponseCode.UN_ERROR.getCode(), "添加文本到向量数据库失败：" + e.getMessage());
-        }
-    }
-
     @GetMapping("/search")
     @Operation(summary = "向量搜索", description = "在向量数据库中搜索相似文本")
     public Result<List<String>> searchInCollection(
             @Parameter(description = "查询文本", required = true) @RequestParam String query,
+            @Parameter(description = "图片URL", required = false) @RequestParam(required = false) String imageUrl,
             @Parameter(description = "返回结果数量", required = false, example = "5") @RequestParam(defaultValue = "5") int maxResults) {
         try {
-            List<String> results = vectorService.searchInCollection(query, maxResults);
-            log.info("向量搜索完成，查询：{}，返回结果数量：{}", query, results.size());
+            List<String> results = vectorService.searchInCollection(query, imageUrl, maxResults);
+            log.info("向量搜索完成，查询：{}，图片URL：{}，返回结果数量：{}", query, imageUrl, results.size());
             return Result.success(results);
         } catch (Exception e) {
-            log.error("向量搜索失败，查询：{}", query, e);
+            log.error("向量搜索失败，查询：{}，图片URL：{}", query, imageUrl, e);
             return Result.fail(ResponseCode.UN_ERROR.getCode(), "向量搜索失败：" + e.getMessage());
+        }
+    }
+
+    @DeleteMapping("/delete/{id}")
+    @Operation(summary = "删除向量数据", description = "从向量数据库中删除指定ID的物品")
+    public Result<Void> deleteFromCollection(
+            @Parameter(description = "要删除的物品ID", required = true) @PathVariable Long id) {
+        try {
+            vectorService.removeFromVectorDatabase(id);
+            log.info("成功从向量数据库删除的物品ID：{}", id);
+            return Result.success(null);
+        } catch (Exception e) {
+            log.error("从向量数据库删除物品失败，ID：{}", id, e);
+            return Result.fail(ResponseCode.UN_ERROR.getCode(), "删除失败：" + e.getMessage());
         }
     }
 
@@ -66,20 +68,6 @@ public class VectorController {
         } catch (Exception e) {
             log.error("获取集合大小失败", e);
             return Result.fail(ResponseCode.UN_ERROR.getCode(), "获取集合大小失败：" + e.getMessage());
-        }
-    }
-
-    @DeleteMapping("/delete/{id}")
-    @Operation(summary = "删除向量数据", description = "从向量数据库中删除指定ID的文本")
-    public Result<Void> deleteFromCollection(
-            @Parameter(description = "要删除的文本ID", required = true) @PathVariable String id) {
-        try {
-            vectorService.deleteFromCollection(id);
-            log.info("成功从向量数据库删除条目，ID：{}", id);
-            return Result.success(null);
-        } catch (Exception e) {
-            log.error("从向量数据库删除条目失败，ID：{}", id, e);
-            return Result.fail(ResponseCode.UN_ERROR.getCode(), "删除失败：" + e.getMessage());
         }
     }
 

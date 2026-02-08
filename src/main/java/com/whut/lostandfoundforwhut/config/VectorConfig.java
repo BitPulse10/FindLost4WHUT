@@ -1,6 +1,5 @@
 package com.whut.lostandfoundforwhut.config;
 
-import com.whut.lostandfoundforwhut.model.dto.TextEmbeddingDTO;
 import com.whut.lostandfoundforwhut.model.entity.Item;
 import com.whut.lostandfoundforwhut.service.IVectorService;
 import com.whut.lostandfoundforwhut.service.impl.VectorServiceImpl;
@@ -53,12 +52,7 @@ public class VectorConfig {
         }
 
         @Override
-        public void addTextToCollection(TextEmbeddingDTO textEmbeddingDTO) {
-            // 空实现 - 不做任何操作
-        }
-
-        @Override
-        public java.util.List<String> searchInCollection(String query, int maxResults) {
+        public java.util.List<String> searchInCollection(String query, String imageUrl, int maxResults) {
             // 返回空列表
             return java.util.Collections.emptyList();
         }
@@ -70,17 +64,7 @@ public class VectorConfig {
         }
 
         @Override
-        public void deleteFromCollection(String id) {
-            // 空实现 - 不做任何操作
-        }
-
-        @Override
         public void clearCollection() {
-            // 空实现 - 不做任何操作
-        }
-
-        @Override
-        public void addToVectorDatabase(Item item) {
             // 空实现 - 不做任何操作
         }
 
@@ -95,12 +79,17 @@ public class VectorConfig {
         }
 
         @Override
-        public void updateVectorDatabase(Item item) {
+        public void updateVectorDatabase(Item item, String imageUrl) {
             // 空实现 - 不做任何操作
         }
 
         @Override
         public void removeFromVectorDatabase(Long itemId) {
+            // 空实现 - 不做任何操作
+        }
+
+        @Override
+        public void deleteFromCollection(String id) {
             // 空实现 - 不做任何操作
         }
     }
