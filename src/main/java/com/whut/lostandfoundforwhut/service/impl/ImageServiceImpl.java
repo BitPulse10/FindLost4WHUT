@@ -34,9 +34,9 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 @Service
 public class ImageServiceImpl extends ServiceImpl<ImageMapper, Image> implements IImageService {
-    // 图片上传目录
-    @Value("${app.upload.image.dir}")
-    private String uploadDir;
+    // // 图片上传目录
+    // @Value("${app.upload.image.dir}")
+    // private String uploadDir;
     // 最大文件大小
     @Value("${app.upload.max-file-size}")
     private String maxFileSize;
@@ -73,76 +73,71 @@ public class ImageServiceImpl extends ServiceImpl<ImageMapper, Image> implements
     }
 
     /**
-     * @description 获取图片上传目录
-     * @return 图片上传目录
-     */
-    @Override
-    public String getUploadDir() {
-        return uploadDir;
-    }
-
-    /**
      * @description 上传图片
      * @param files 图片文件列表
      * @return 图片实体列表
      */
     @Override
-    public List<Image> uploadImages(List<MultipartFile> files) {
+    public List<Long> uploadImages(List<MultipartFile> files) {
         if (files == null || files.isEmpty()) {
             return new ArrayList<>();
         }
 
         for (MultipartFile file : files) {
-            if (file == null || file.isEmpty()) {
-                continue;
-            }
+            if (file == null || file.isEmpty()) { continue; }
             validateImageFile(file);
         }
 
-        List<String> uniqueFilenames = new ArrayList<>(); // 存储唯一文件名
+        List<String> objectKeys = new ArrayList<>(); // COS 存储对象键列表
         try {
             // 上传所有文件
             for (MultipartFile file : files) {
-                if (file == null || file.isEmpty()) {
-                    continue;
-                }
+                if (file == null || file.isEmpty()) { continue; }
                 // 上传文件到COS并获取唯一文件名
-                String uniqueFilename = uploadFileToCOSReturnUniqueFilename(file);
-                // 添加到唯一文件名列表
-                uniqueFilenames.add(uniqueFilename);
+                String objectKey = uploadFileToCOSReturnObjectKey(file, "images/");
+                // 添加到COS存储对象键列表
+                objectKeys.add(objectKey);
             }
 
             // 审核所有图片
-            List<String> messages = contentReviewer.batchReviewImageKey(uniqueFilenames);
+            List<String> messages = contentReviewer.batchReviewImageKey(objectKeys);
             String message = joinMessages(messages, "; ", (i, msg) -> "图片" + (i + 1) + "审核失败: " + msg);
             if (message != null) {
                 throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(), message);
             }
 
-            // 创建上传目录
-            File uploadDirFile = createDir(uploadDir);
-            // 下载并保存图片
+            // 压缩所有图片
+            for (String objectKey : objectKeys) {
+                imageProcessor.processimage(objectKey);
+            }
+
+            // 设置所有图片为公共读权限
+            for (String objectKey : objectKeys) {
+                cos.setObjectPublicRead(objectKey);
+            }
+
+            // 批量保存到数据库
             List<Image> images = new ArrayList<>();
-            for (String uniqueFilename : uniqueFilenames) {
-                // 下载并压缩图片
-                File filePath = new File(uploadDirFile, uniqueFilename);
-                imageProcessor.downloadAndProcessImage(uniqueFilename, filePath);
+            for (String objectKey : objectKeys) {
                 // 创建图片对象
                 Image image = new Image();
-                image.setUrl(uniqueFilename);
+                image.setObjectKey(objectKey);
+                image.setUrl(cos.getObjectUrl(objectKey));
                 images.add(image);
             }
-            // 批量保存到数据库
-            this.saveBatch(images);
+            imageMapper.insert(images);
 
-            return images;
-        } catch (AppException e) {
-            throw e;
+            return images.stream().map(Image::getId).collect(Collectors.toList());
         } catch (Exception e) {
-            throw new AppException(ResponseCode.UN_ERROR.getCode(), "文件上传失败: " + e.getMessage());
-        } finally {
-            // 确保COS上的文件被删除
-            cos.batchDeleteObject(uniqueFilenames);
+            // 删除COS上的文件
+            cos.batchDeleteObject(objectKeys);
+
+            // 处理异常
+            if (e instanceof AppException) {
+                throw (AppException) e;
+            } else {
+                throw new AppException(ResponseCode.UN_ERROR.getCode(), "文件上传失败: " + e.getMessage());
+            }
         }
     }
 
@@ -153,20 +148,20 @@ public class ImageServiceImpl extends ServiceImpl<ImageMapper, Image> implements
      */
     @Override
     public List<String> getTabs(MultipartFile file) {
-        String uniqueFilename = null;
+        String objectKey = null;
 
         // 验证文件
         validateImageFile(file);
         try {
             // 上传文件到COS并获取唯一文件名
-            uniqueFilename = uploadFileToCOSReturnUniqueFilename(file);
+            objectKey = uploadFileToCOSReturnObjectKey(file, "temp/images/");
             // 审核图片
-            String message = contentReviewer.reviewImageKey(uniqueFilename);
+            String message = contentReviewer.reviewImageKey(objectKey);
             if (message != null) {
                 throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(), message);
             }
             // 从COS上的图片提取标签
-            List<String> tabs = contentRecognizer.getCategoriesAndNames(uniqueFilename,
+            List<String> tabs = contentRecognizer.getCategoriesAndNames(objectKey,
                     CONTENT_RECOGNITION_MIN_CONFIDENCE);
 
             return tabs;
@@ -176,94 +171,114 @@ public class ImageServiceImpl extends ServiceImpl<ImageMapper, Image> implements
             throw new AppException(ResponseCode.UN_ERROR.getCode(), "提取标签失败: " + e.getMessage());
         } finally {
             // 确保COS上的文件被删除
-            if (uniqueFilename != null && cos.hasObject(uniqueFilename)) {
-                cos.deleteObject(uniqueFilename);
+            if (objectKey != null && cos.hasObject(objectKey)) {
+                cos.deleteObject(objectKey);
             }
         }
     }
 
     /**
-     * @description 根据ID获取图片
-     * @param id 图片ID
-     * @return 图片实体
+     * @description 获取图片URL
+     * @param imageId 图片ID
+     * @return 图片URL
      */
     @Override
-    public Image getImageById(Long id) {
-        return imageMapper.selectById(id);
-    }
-
-    /**
-     * @description 根据ID获取图片文件
-     * @param id 图片ID
-     * @return 图片文件
-     */
-    @Override
-    public File getImageFileById(Long id) {
-        Image image = imageMapper.selectById(id);
+    public String getUrlById(Long imageId) {
+        Image image = imageMapper.selectById(imageId);
         if (image == null || image.getUrl() == null) {
             return null;
         }
-        File imageFile = new File(uploadDir, image.getUrl());
-        if (!imageFile.exists()) {
-            return null;
-        }
-        return imageFile;
+        return image.getUrl();
     }
 
+    // /**
+    //  * @description 根据ID获取图片文件
+    //  * @param id 图片ID
+    //  * @return 图片文件
+    //  */
+    // @Override
+    // public File getImageFileById(Long id) {
+    //     Image image = imageMapper.selectById(id);
+    //     if (image == null || image.getUrl() == null) {
+    //         return null;
+    //     }
+    //     File imageFile = new File(uploadDir, image.getUrl());
+    //     if (!imageFile.exists()) {
+    //         return null;
+    //     }
+    //     return imageFile;
+    // }
+
+    // /**
+    //  * @description 删除图片和关联的文件
+    //  * @param imageIds 图片ID列表
+    //  */
+    // @Override
+    // public void deleteImagesAndFiles(List<Long> imageIds) {
+    //     if (imageIds == null || imageIds.isEmpty()) {
+    //         return;
+    //     }
+    //
+    //     // 先删除所有相关的物品-图片关联关系
+    //     int deletedAssociations = itemImageMapper.deleteAllItemImagesByImageIds(imageIds);
+    //     log.info("已删除 {} 条物品-图片关联记录", deletedAssociations);
+    //
+    //     for (Long imageId : imageIds) {
+    //         // 删除本地文件
+    //         File imageFile = getImageFileById(imageId);
+    //         if (imageFile != null && imageFile.exists()) {
+    //             imageFile.delete();
+    //             log.info("已删除图片文件: {}", imageFile.getAbsolutePath());
+    //         }
+    //
+    //         // 删除数据库记录
+    //         boolean deleted = this.removeById(imageId);
+    //         if (deleted) {
+    //             log.info("已删除图片记录，ID: {}", imageId);
+    //         } else {
+    //             log.warn("删除图片记录失败，ID: {}", imageId);
+    //         }
+    //     }
+    // }
+
     /**
-     * @description 删除图片和关联的文件
+     * @description 根据ID删除图片和关联的文件
      * @param imageIds 图片ID列表
      */
     @Override
-    public void deleteImagesAndFiles(List<Long> imageIds) {
+    public void deleteImagesByIds(List<Long> imageIds) {
         if (imageIds == null || imageIds.isEmpty()) {
             return;
         }
 
-        // 先删除所有相关的物品-图片关联关系
-        int deletedAssociations = itemImageMapper.deleteAllItemImagesByImageIds(imageIds);
-        log.info("已删除 {} 条物品-图片关联记录", deletedAssociations);
-
-        for (Long imageId : imageIds) {
-            // 删除本地文件
-            File imageFile = getImageFileById(imageId);
-            if (imageFile != null && imageFile.exists()) {
-                imageFile.delete();
-                log.info("已删除图片文件: {}", imageFile.getAbsolutePath());
-            }
-
-            // 删除数据库记录
-            boolean deleted = this.removeById(imageId);
-            if (deleted) {
-                log.info("已删除图片记录，ID: {}", imageId);
-            } else {
-                log.warn("删除图片记录失败，ID: {}", imageId);
-            }
-        }
+        List<Image> images = imageMapper.selectByIds(imageIds);
+        List<String> objectKeys = images.stream().map(Image::getObjectKey).collect(Collectors.toList());
+        cos.batchDeleteObject(objectKeys);
+        imageMapper.deleteByIds(imageIds);
     }
 
     /**
-     * 上传文件到COS并返回唯一文件名
+     * 上传文件到COS并返回对象键
      * 
      * @param file 上传的文件
-     * @return 唯一文件名
-     * @throws IOException 如果上传过程中发生IO错误
+     * @param prefix 路径前缀
+     * @return COS 对象键
      */
-    private String uploadFileToCOSReturnUniqueFilename(MultipartFile file) throws IOException {
+    private String uploadFileToCOSReturnObjectKey(MultipartFile file, String prefix) throws IOException {
         // 获取文件扩展名
         String originalFilename = file.getOriginalFilename();
         String extension = originalFilename.substring(originalFilename.lastIndexOf("."));
-        // 生成唯一文件名
-        String uniqueFilename = java.util.UUID.randomUUID().toString() + extension;
+        // 生成对象键
+        String objectKey = prefix + java.util.UUID.randomUUID().toString() + extension;
 
         // 先保存到临时文件
         File tempFile = File.createTempFile("temp", extension);
         file.transferTo(tempFile.toPath());
         // 上传到COS
-        cos.uploadFile(tempFile, uniqueFilename);
+        cos.uploadFile(tempFile, objectKey);
         tempFile.delete();
-        // 返回唯一文件名
-        return uniqueFilename;
+        // 返回对象键
+        return objectKey;
     }
 
     /**
@@ -287,19 +302,19 @@ public class ImageServiceImpl extends ServiceImpl<ImageMapper, Image> implements
         }
     }
 
-    /**
-     * 创建目录文件
-     * 
-     * @param path 目录路径
-     * @return 目录文件
-     */
-    private File createDir(String path) {
-        File uploadDirFile = new File(path);
-        if (!uploadDirFile.exists()) {
-            uploadDirFile.mkdirs();
-        }
-        return uploadDirFile;
-    }
+    // /**
+    //  * 创建目录文件
+    //  * 
+    //  * @param path 目录路径
+    //  * @return 目录文件
+    //  */
+    // private File createDir(String path) {
+    //     File uploadDirFile = new File(path);
+    //     if (!uploadDirFile.exists()) {
+    //         uploadDirFile.mkdirs();
+    //     }
+    //     return uploadDirFile;
+    // }
 
     /**
      * 合并消息列表

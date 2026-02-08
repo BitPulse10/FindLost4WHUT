@@ -48,9 +48,9 @@ public class COSTest {
     }
 
     @Test
-    public void testGetObjectURL() {
+    public void testGetObjectUrl() {
         try {
-            String url = cos.getObjectURL(testKey);
+            String url = cos.getObjectUrl(testKey);
             System.out.println("获取到的URL: " + url);
             assert url != null : "获取URL失败";
         } catch (Exception e) {

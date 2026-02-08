@@ -6,6 +6,11 @@ spring:
     name: lostAndFoundForWhut
   profiles:
     active: dev
+  # Flyway 数据库迁移配置
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    locations: classpath:db/migration
 
 app:
   jwt:
@@ -19,8 +24,6 @@ app:
     enabled: true # 是否启用安全配置 true:启用 false:不启用
   upload:
     max-file-size: 1MB
-    image: # 图片上传配置
-      dir: uploads/image
 
 mybatis-plus:
   mapper-locations: classpath*:mapper/**/*.xml
