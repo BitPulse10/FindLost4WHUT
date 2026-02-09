@@ -51,7 +51,6 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
     private final TagMapper tagMapper;
     private final ItemTagMapper itemTagMapper;
     private final ItemImageMapper itemImageMapper;
-    private final IImageService imageService;
     private final ImageMapper imageMapper;
     private final ITagService tagService;
     private final IVectorService vectorService;

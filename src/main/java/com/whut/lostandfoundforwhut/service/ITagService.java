@@ -1,5 +1,6 @@
 package com.whut.lostandfoundforwhut.service;
 
+import com.baomidou.mybatisplus.extension.service.IService;
 import com.whut.lostandfoundforwhut.model.entity.Tag;
 import com.whut.lostandfoundforwhut.model.vo.PageResultVO;
 
@@ -10,12 +11,12 @@ import java.util.List;
  * @date 2026/02/04
  * @description 标签服务接口
  */
-public interface ITagService {
+public interface ITagService extends IService<Tag> {
     /**
      * 标签查询（支持关键字）
      *
-     * @param keyword 关键字（可为空）
-     * @param pageNo  页码
+     * @param keyword  关键字（可为空）
+     * @param pageNo   页码
      * @param pageSize 每页数量
      * @return 分页结果
      */
@@ -41,7 +42,7 @@ public interface ITagService {
      * 替换物品标签关联
      *
      * @param itemId 物品ID
-     * @param names 标签名称列表
+     * @param names  标签名称列表
      */
     void replaceTagsForItem(Long itemId, List<String> names);
 

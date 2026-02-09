@@ -1,5 +1,6 @@
 package com.whut.lostandfoundforwhut.service;
 
+import com.baomidou.mybatisplus.extension.service.IService;
 import com.whut.lostandfoundforwhut.model.dto.ItemDTO;
 import com.whut.lostandfoundforwhut.model.dto.ItemFilterDTO;
 import com.whut.lostandfoundforwhut.model.entity.Item;
@@ -11,7 +12,7 @@ import java.util.List;
  * @date 2026/01/31
  * @description 物品服务接口
  */
-public interface IItemService {
+public interface IItemService extends IService<Item> {
     /**
      * 添加物品
      *
