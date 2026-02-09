@@ -74,7 +74,7 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
                 .build();
 
         // 物品保存到数据库
-        itemMapper.insert(item);
+        save(item);
         log.info("物品添加数据库成功：{}", item.getId());
 
         // 将物品和图片添加到关联表中
@@ -200,22 +200,6 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
                 log.warn("物品图片关联添加失败，物品ID：{}，图片ID：{}", itemId, newImageId);
             }
         }
-    }
-
-    @Override
-    public Item getItemById(Long itemId) {
-        if (itemId == null) {
-            throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(), "物品ID不能为空");
-        }
-
-        Item item = itemMapper.selectById(itemId);
-        if (item == null) {
-            log.warn("尝试获取不存在的物品，ID：{}", itemId);
-            throw new AppException(ResponseCode.ITEM_NOT_FOUND.getCode(), ResponseCode.ITEM_NOT_FOUND.getInfo());
-        }
-
-        item.setTags(tagService.getTagNamesByItemId(itemId));
-        return item;
     }
 
     @Override

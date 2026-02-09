@@ -33,14 +33,6 @@ public interface IItemService extends IService<Item> {
     Item updateItem(Long itemId, ItemDTO itemDTO, Long userId);
 
     /**
-     * 获取物品详情
-     *
-     * @param itemId 物品ID
-     * @return 物品实体
-     */
-    Item getItemById(Long itemId);
-
-    /**
      * 筛选物品
      *
      * @param ItemFilterDTO 筛选参数（包含分页和筛选条件）

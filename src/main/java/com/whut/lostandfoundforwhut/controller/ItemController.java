@@ -153,17 +153,11 @@ public class ItemController {
     @Operation(summary = "获取物品", description = "通过物品ID获取物品信息")
     public Result<Item> getItemById(
             @Parameter(description = "Item ID", required = true) @PathVariable Long ItemId) {
-        try {
-            Item item = itemService.getItemById(ItemId);
-            return Result.success(item);
-        } catch (AppException e) {
-            System.out.println("获取物品时发生业务异常：" + e.getMessage());
-            return Result.fail(e.getCode(), e.getInfo());
-        } catch (Exception e) {
-            System.out.println("获取物品时发生未知异常：" + e.getMessage());
-            e.printStackTrace();
-            return Result.fail(ResponseCode.UN_ERROR.getCode(), "获取物品失败：" + e.getMessage());
+        Item item = itemService.getById(ItemId);
+        if (item == null) {
+            return Result.fail(ResponseCode.ITEM_NOT_FOUND);
         }
+        return Result.success(item);
     }
 
     @GetMapping("/search-similar")
