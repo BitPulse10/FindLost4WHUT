@@ -160,6 +160,23 @@ public class ItemController {
         return Result.success(item);
     }
 
+    @DeleteMapping("/images")
+    @Operation(summary = "删除图片", description = "根据图片ID列表删除图片")
+    public Result<Boolean> deleteImages(
+            @Parameter(description = "Bearer token", required = true) @RequestHeader(value = "Authorization") String authorization,
+            @Parameter(description = "图片ID列表", required = true) @RequestBody List<Long> imageIds) {
+        try {
+            imageService.deleteImagesByIds(imageIds);
+            return Result.success(true);
+        } catch (AppException e) {
+            log.warn("删除图片时发生业务异常：{}", e.getMessage());
+            return Result.fail(e.getCode(), e.getInfo());
+        } catch (Exception e) {
+            log.error("删除图片时发生未知异常：", e);
+            return Result.fail(ResponseCode.UN_ERROR.getCode(), "删除图片失败：" + e.getMessage());
+        }
+    }
+
     @GetMapping("/search-similar")
     @Operation(summary = "搜索相似物品", description = "在向量数据库中搜索与查询文本相似的物品")
     public Result<List<Item>> searchSimilarItems(
