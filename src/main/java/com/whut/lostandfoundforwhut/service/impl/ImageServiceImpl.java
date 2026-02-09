@@ -8,9 +8,9 @@ import com.whut.lostandfoundforwhut.common.utils.cos.ContentReviewer;
 import com.whut.lostandfoundforwhut.common.utils.cos.ImageProcessor;
 import com.whut.lostandfoundforwhut.common.utils.image.ImageValidator;
 import com.whut.lostandfoundforwhut.mapper.ImageMapper;
-import com.whut.lostandfoundforwhut.mapper.ItemImageMapper;
 import com.whut.lostandfoundforwhut.model.entity.Image;
 import com.whut.lostandfoundforwhut.service.IImageService;
+import com.whut.lostandfoundforwhut.service.IRedisService;
 
 import jakarta.annotation.PostConstruct;
 
@@ -28,15 +28,13 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.UUID;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 @Service
 public class ImageServiceImpl extends ServiceImpl<ImageMapper, Image> implements IImageService {
-    // // 图片上传目录
-    // @Value("${app.upload.image.dir}")
-    // private String uploadDir;
     // 最大文件大小
     @Value("${app.upload.max-file-size}")
     private String maxFileSize;
@@ -60,7 +58,7 @@ public class ImageServiceImpl extends ServiceImpl<ImageMapper, Image> implements
     private ImageMapper imageMapper;
 
     @Autowired
-    private ItemImageMapper itemImageMapper;
+    private IRedisService redisService;
 
     // 最小置信度
     private int CONTENT_RECOGNITION_MIN_CONFIDENCE = 60;
@@ -89,6 +87,7 @@ public class ImageServiceImpl extends ServiceImpl<ImageMapper, Image> implements
         }
 
         List<String> objectKeys = new ArrayList<>(); // COS 存储对象键列表
+        List<Image> images = new ArrayList<>(); // 图片实体列表
         try {
             // 上传所有文件
             for (MultipartFile file : files) {
@@ -117,7 +116,6 @@ public class ImageServiceImpl extends ServiceImpl<ImageMapper, Image> implements
             }
 
             // 批量保存到数据库
-            List<Image> images = new ArrayList<>();
             for (String objectKey : objectKeys) {
                 // 创建图片对象
                 Image image = new Image();
@@ -127,10 +125,23 @@ public class ImageServiceImpl extends ServiceImpl<ImageMapper, Image> implements
             }
             imageMapper.insert(images);
 
+            // 缓存所有图片
+            for (Image image : images) {
+                Long imageId = image.getId();
+                redisService.setValue(generateCacheKey(imageId), image);
+            }
+
             return images.stream().map(Image::getId).collect(Collectors.toList());
         } catch (Exception e) {
             // 删除COS上的文件
             cos.batchDeleteObject(objectKeys);
+            // 删除所有图片缓存
+            for (Image image : images) {
+                String cacheKey = generateCacheKey(image.getId());
+                if (redisService.isExists(cacheKey)) {
+                    redisService.remove(cacheKey);
+                }
+            }
 
             // 处理异常
             if (e instanceof AppException) {
@@ -184,10 +195,28 @@ public class ImageServiceImpl extends ServiceImpl<ImageMapper, Image> implements
      */
     @Override
     public String getUrlById(Long imageId) {
+        // 从缓存中获取图片URL
+        String cacheKey = generateCacheKey(imageId);
+        if (redisService.isExists(cacheKey)) {
+            // 键存在
+            Image image = (Image) redisService.getValue(cacheKey);
+            if (image != null) {
+                return image.getUrl();
+            } else {
+                return null; // 缓存空值，说明不存在
+            }
+        }
+        
+        // 从数据库中获取图片
         Image image = imageMapper.selectById(imageId);
-        if (image == null || image.getUrl() == null) {
+        if (image == null) {
+            // 数据库也没有，缓存空值
+            redisService.setValue(cacheKey, null);
             return null;
         }
+
+        // 缓存图片
+        redisService.setValue(cacheKey, image);
         return image.getUrl();
     }
 
@@ -252,9 +281,20 @@ public class ImageServiceImpl extends ServiceImpl<ImageMapper, Image> implements
         }
 
         List<Image> images = imageMapper.selectByIds(imageIds);
+        // 删除数据库记录
+        imageMapper.deleteByIds(imageIds);
+        // 删除COS上的文件
         List<String> objectKeys = images.stream().map(Image::getObjectKey).collect(Collectors.toList());
         cos.batchDeleteObject(objectKeys);
-        imageMapper.deleteByIds(imageIds);
+        // 删除所有图片缓存
+        for (Long imageId : imageIds) {
+            String cacheKey = generateCacheKey(imageId);
+            if (redisService.isExists(cacheKey)) {
+                redisService.remove(cacheKey);
+            }
+        }
+        
+        log.info("已删除 {} 条图片记录和 {} 个COS文件", imageIds.size(), objectKeys.size());
     }
 
     /**
@@ -269,7 +309,7 @@ public class ImageServiceImpl extends ServiceImpl<ImageMapper, Image> implements
         String originalFilename = file.getOriginalFilename();
         String extension = originalFilename.substring(originalFilename.lastIndexOf("."));
         // 生成对象键
-        String objectKey = prefix + java.util.UUID.randomUUID().toString() + extension;
+        String objectKey = prefix + generateFileName(extension);
 
         // 先保存到临时文件
         File tempFile = File.createTempFile("temp", extension);
@@ -302,19 +342,13 @@ public class ImageServiceImpl extends ServiceImpl<ImageMapper, Image> implements
         }
     }
 
-    // /**
-    //  * 创建目录文件
-    //  * 
-    //  * @param path 目录路径
-    //  * @return 目录文件
-    //  */
-    // private File createDir(String path) {
-    //     File uploadDirFile = new File(path);
-    //     if (!uploadDirFile.exists()) {
-    //         uploadDirFile.mkdirs();
-    //     }
-    //     return uploadDirFile;
-    // }
+    private String generateFileName(String extension) {
+        return System.currentTimeMillis() + "_" + UUID.randomUUID().toString() + extension;
+    }
+
+    private String generateCacheKey(Long imageId) {
+        return "image:" + imageId;
+    }
 
     /**
      * 合并消息列表
