@@ -309,6 +309,30 @@ public class VectorServiceImpl implements IVectorService {
     public void clearCollection() {
         checkInitialized();
 
+        HttpClient client = HttpClient.newHttpClient();
+        String deleteUrl = chromaUrl + "/api/v1/collections/" + collectionName;
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(deleteUrl))
+                .DELETE()
+                .build();
+
+        try {
+            HttpResponse<String> response = client.send(
+                    request,
+                    HttpResponse.BodyHandlers.ofString());
+
+            if (response.statusCode() == 200) {
+                System.out.println("集合 " + collectionName + " 删除成功！");
+
+                // 删除集合后重新初始化新的
+                initializeCollection();
+            } else {
+                System.err.println("删除失败，状态码：" + response.statusCode() + "，响应：" + response.body());
+            }
+        } catch (Exception e) {
+            System.err.println("请求异常：" + e.getMessage());
+            e.printStackTrace();
+        }
     }
 
     /**
@@ -340,29 +364,13 @@ public class VectorServiceImpl implements IVectorService {
             ObjectMapper mapper = new ObjectMapper();
             JsonNode root = mapper.readTree(response.body());
 
-            // ChromaDB 返回的可能是数组或对象
-            if (root.isArray()) {
-                // 如果是数组格式：[{name: "xxx", id: "xxx"}, ...]
-                for (JsonNode node : root) {
-                    String name = node.get("name").asText();
-                    if (collectionName.equals(name)) {
-                        String id = node.get("id").asText();
-                        log.info("找到集合 {} 的ID: {}", collectionName, id);
-                        return id;
-                    }
-                }
-            } else if (root.has("collections")) {
-                // 如果是对象格式：{collections: [{...}]}
-                JsonNode collections = root.get("collections");
-                if (collections.isArray()) {
-                    for (JsonNode node : collections) {
-                        String name = node.get("name").asText();
-                        if (collectionName.equals(name)) {
-                            String id = node.get("id").asText();
-                            log.info("找到集合 {} 的ID: {}", collectionName, id);
-                            return id;
-                        }
-                    }
+            // ChromaDB 返回的是数组
+            for (JsonNode node : root) {
+                String name = node.get("name").asText();
+                if (collectionName.equals(name)) {
+                    String id = node.get("id").asText();
+                    log.info("找到集合 {} 的ID: {}", collectionName, id);
+                    return id;
                 }
             }
 

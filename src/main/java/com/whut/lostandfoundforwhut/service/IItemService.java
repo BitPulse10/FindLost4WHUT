@@ -1,5 +1,6 @@
 package com.whut.lostandfoundforwhut.service;
 
+import com.baomidou.mybatisplus.extension.service.IService;
 import com.whut.lostandfoundforwhut.model.dto.ItemDTO;
 import com.whut.lostandfoundforwhut.model.dto.ItemFilterDTO;
 import com.whut.lostandfoundforwhut.model.entity.Item;
@@ -11,7 +12,7 @@ import java.util.List;
  * @date 2026/01/31
  * @description 物品服务接口
  */
-public interface IItemService {
+public interface IItemService extends IService<Item> {
     /**
      * 添加物品
      *
@@ -30,14 +31,6 @@ public interface IItemService {
      * @return 更新后的物品实体
      */
     Item updateItem(Long itemId, ItemDTO itemDTO, Long userId);
-
-    /**
-     * 获取物品详情
-     *
-     * @param itemId 物品ID
-     * @return 物品实体
-     */
-    Item getItemById(Long itemId);
 
     /**
      * 筛选物品
@@ -69,8 +62,9 @@ public interface IItemService {
      * 搜索相似物品
      *
      * @param query      查询文本
+     * @param imageId    图片ID
      * @param maxResults 最大返回结果数
      * @return 相似的物品列表
      */
-    List<Item> searchSimilarItems(String query, int maxResults);
+    List<Item> searchSimilarItems(String query, Long imageId, int maxResults);
 }

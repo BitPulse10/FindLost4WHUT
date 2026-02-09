@@ -21,6 +21,7 @@ import com.whut.lostandfoundforwhut.mapper.ItemImageMapper;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 
@@ -55,10 +56,10 @@ public class ItemController {
             return Result.success(item);
         } catch (Exception e) {
             // 捕获异常后，删除上传的图片
-            // if (itemDTO.getImageId() != null) {
-            // List<Long> imageIds = Arrays.asList(itemDTO.getImageId());
-            // imageService.deleteImagesByIds(imageIds);
-            // }
+            if (itemDTO.getImageId() != null) {
+                List<Long> imageIds = Arrays.asList(Long.parseLong(String.valueOf(itemDTO.getImageId())));
+                imageService.deleteImagesByIds(imageIds);
+            }
 
             // 处理业务异常
             if (e instanceof AppException) {
@@ -86,15 +87,7 @@ public class ItemController {
             return Result.success(updatedItem);
         } catch (Exception e) {
             // 捕获异常后，删除要删除的图片
-            String updateImageIdStr = itemDTO.getImageId();
-            Long updateImageId = null;
-            if (updateImageIdStr != null && !updateImageIdStr.isEmpty()) {
-                try {
-                    updateImageId = Long.parseLong(updateImageIdStr);
-                } catch (NumberFormatException ex) {
-                    log.warn("图片ID格式错误: {}", updateImageIdStr);
-                }
-            }
+            Long updateImageId = itemDTO.getImageId();
             List<Long> oldImageIds = Optional.ofNullable(itemImageMapper.getImageIdsByItemId(itemId))
                     .orElse(new ArrayList<>()); // 获取旧图片实体列表
             List<Long> deleteImageIds = new ArrayList<>();
@@ -160,16 +153,27 @@ public class ItemController {
     @Operation(summary = "获取物品", description = "通过物品ID获取物品信息")
     public Result<Item> getItemById(
             @Parameter(description = "Item ID", required = true) @PathVariable Long ItemId) {
+        Item item = itemService.getById(ItemId);
+        if (item == null) {
+            return Result.fail(ResponseCode.ITEM_NOT_FOUND);
+        }
+        return Result.success(item);
+    }
+
+    @DeleteMapping("/images")
+    @Operation(summary = "删除图片", description = "根据图片ID列表删除图片")
+    public Result<Boolean> deleteImages(
+            @Parameter(description = "Bearer token", required = true) @RequestHeader(value = "Authorization") String authorization,
+            @Parameter(description = "图片ID列表", required = true) @RequestBody List<Long> imageIds) {
         try {
-            Item item = itemService.getItemById(ItemId);
-            return Result.success(item);
+            imageService.deleteImagesByIds(imageIds);
+            return Result.success(true);
         } catch (AppException e) {
-            System.out.println("获取物品时发生业务异常：" + e.getMessage());
+            log.warn("删除图片时发生业务异常：{}", e.getMessage());
             return Result.fail(e.getCode(), e.getInfo());
         } catch (Exception e) {
-            System.out.println("获取物品时发生未知异常：" + e.getMessage());
-            e.printStackTrace();
-            return Result.fail(ResponseCode.UN_ERROR.getCode(), "获取物品失败：" + e.getMessage());
+            log.error("删除图片时发生未知异常：", e);
+            return Result.fail(ResponseCode.UN_ERROR.getCode(), "删除图片失败：" + e.getMessage());
         }
     }
 
@@ -177,9 +181,10 @@ public class ItemController {
     @Operation(summary = "搜索相似物品", description = "在向量数据库中搜索与查询文本相似的物品")
     public Result<List<Item>> searchSimilarItems(
             @Parameter(description = "查询文本", required = true) @RequestParam String query,
-            @Parameter(description = "返回结果数量", required = false, example = "5") @RequestParam(defaultValue = "5") int maxResults) {
+            @Parameter(description = "返回结果数量", required = false, example = "5") @RequestParam(defaultValue = "5") int maxResults,
+            @Parameter(description = "图片ID", required = true) @RequestParam(required = true) Long imageId) {
         try {
-            List<Item> results = itemService.searchSimilarItems(query, maxResults);
+            List<Item> results = itemService.searchSimilarItems(query, imageId, maxResults);
             log.info("搜索相似物品完成，查询：{}，返回结果数量：{}", query, results.size());
             return Result.success(results);
         } catch (Exception e) {

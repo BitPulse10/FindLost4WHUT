@@ -38,6 +38,14 @@ public interface ItemImageMapper extends BaseMapper<ItemImage> {
     List<Long> getImageIdsByItemId(Long itemId);
 
     /**
+     * 根据物品ID删除所有图片关联
+     * 
+     * @param itemId 物品ID
+     * @return 删除的记录数
+     */
+    int deleteByItemId(Long itemId);
+
+    /**
      * 批量插入物品-图片关联
      * 
      * @param itemId   物品ID
