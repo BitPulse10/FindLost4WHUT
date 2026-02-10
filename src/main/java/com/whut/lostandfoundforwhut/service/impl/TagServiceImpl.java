@@ -2,6 +2,7 @@ package com.whut.lostandfoundforwhut.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.whut.lostandfoundforwhut.common.constant.Constants;
 import com.whut.lostandfoundforwhut.common.enums.ResponseCode;
 import com.whut.lostandfoundforwhut.common.exception.AppException;
@@ -34,7 +35,7 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 @Slf4j
-public class TagServiceImpl implements ITagService {
+public class TagServiceImpl extends ServiceImpl<TagMapper, Tag> implements ITagService {
 
     private static final int MAX_TAG_LENGTH = 20;
     private static final int MAX_PAGE_SIZE = 100;
