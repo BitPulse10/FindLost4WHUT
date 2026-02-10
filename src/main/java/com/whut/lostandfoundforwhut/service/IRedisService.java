@@ -225,4 +225,13 @@ public interface IRedisService {
      * @return 成员集合
      */
     Set<Object> getSetMembers(String key);
+
+    /**
+     * @author Codex
+     * @date 2026/02/09
+     * @description 按前缀删除 key
+     * @param prefix 前缀
+     * @return 删除数量
+     */
+    Long removeByPrefix(String prefix);
 }

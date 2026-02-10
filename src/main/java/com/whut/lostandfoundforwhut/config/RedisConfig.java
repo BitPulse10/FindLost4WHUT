@@ -1,5 +1,7 @@
 package com.whut.lostandfoundforwhut.config;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
@@ -32,8 +34,11 @@ public class RedisConfig {
         template.setKeySerializer(stringSerializer);
         template.setHashKeySerializer(stringSerializer);
 
-        // Value 使用 JSON 序列化，便于跨语言/可读
-        GenericJackson2JsonRedisSerializer jsonSerializer = new GenericJackson2JsonRedisSerializer();
+        // Value 使用 JSON 序列化，显式注册 JSR310（LocalDateTime 等），避免写入 Redis 时报错
+        ObjectMapper objectMapper = new ObjectMapper();
+        objectMapper.findAndRegisterModules();
+        objectMapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+        GenericJackson2JsonRedisSerializer jsonSerializer = new GenericJackson2JsonRedisSerializer(objectMapper);
         template.setValueSerializer(jsonSerializer);
         template.setHashValueSerializer(jsonSerializer);
 
