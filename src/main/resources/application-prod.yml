@@ -29,3 +29,18 @@ spring:
           max-idle: 8
           min-idle: 0
           max-wait: 1s
+  mail:
+    host: smtp.qq.com
+    port: 587
+    username: bitpulse@foxmail.com
+    password: gsnkkrvuiuivcbbh
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+
+app:
+  mail:
+    from: bitpulse@foxmail.com

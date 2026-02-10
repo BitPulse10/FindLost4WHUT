@@ -1,6 +1,7 @@
 package com.whut.lostandfoundforwhut.model.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
@@ -17,4 +18,7 @@ public class Image {
     private Long id;
 
     private String url;
+    
+    @TableField(value = "object_key")
+    private String objectKey;
 }

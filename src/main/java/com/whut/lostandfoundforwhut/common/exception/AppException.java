@@ -82,4 +82,12 @@ public class AppException extends RuntimeException {
                 '}';
     }
 
+    /**
+     * @description 获取异常信息
+     * @return 异常信息
+     */
+    @Override
+    public String getMessage() {
+        return info;
+    }
 }

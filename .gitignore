@@ -31,3 +31,10 @@ build/
 
 ### VS Code ###
 .vscode/
+
+uploads/
+/AGENTS.md
+.env
+docs/dev-ops/environment/.env
+tag设计.md
+uploads/

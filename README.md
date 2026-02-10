@@ -1,11 +1,37 @@
 # 项目说明
 
+## 快速开始
+1. 进入环境目录并启动 Docker 依赖：
+```bash
+cd docs/dev-ops/environment
+docker compose -f docker-compose-environment.yml -p environment up -d
+```
+docker-compose会自根据docs\dev-ops\environment\mysql\sql\lost_and_found_init.sql自动创建名为Lost_And_Found的数据库。。。。。.
+2. 本地数据库端口使用 `13307`（MySQL 端口映射）。
+3. 应用启动后即可连接本地数据库。
+
+
 ## 1. 配置文件
 - `src/main/resources/application.yml`：公共配置（应用名、JWT、MyBatis‑Plus、日志、启用环境）
 - `src/main/resources/application-dev.yml`：开发环境（数据库、Redis、连接池）
 - `src/main/resources/application-prod.yml`：生产环境（数据库、Redis、连接池）
 
 当前默认启用：`dev`（在 `application.yml` 中配置 `spring.profiles.active=dev`）。
+
+### 邮件配置（注册验证码）
+- 配置位置：`application-dev.yml` / `application-prod.yml`
+- 关键字段：
+  - `spring.mail.host`
+  - `spring.mail.port`
+  - `spring.mail.username`
+  - `spring.mail.password`
+  - `app.mail.from`
+  - `app.mail.test-to`（可选，用于本地邮件发送测试）
+  - `app.jwt.refresh-expiration-ms`（refresh token 有效期）
+- 邮件模板：
+  - 标题：`注册验证码`
+  - 内容：`您的注册验证码为：{code}，有效期 90 秒。如非本人操作请忽略。`
+
 
 ---
 
@@ -98,6 +124,95 @@ String loginEmail = jwtUtil.getEmail(token);
 // if (user.getStatus() == UserStatus.BANNED.getCode()) return Result.fail(...)
 ```
 
+## 4.4 认证与注册接口（Swagger/REST）
+
+### 发送注册验证码
+`POST /api/auth/register/code`
+- 入参：
+  - `email`
+- 说明：
+  - 验证码 4 位
+  - 有效期 90 秒
+  - 同一邮箱 60 秒内仅允许发送一次
+- 可能返回错误码：
+  - `USR_003`：邮箱已存在
+  - `USR_006`：验证码发送过于频繁
+  - `MAIL_001`：邮箱配置缺失或无效
+  - `MAIL_002`：邮件发送失败
+
+### 注册
+`POST /api/auth/register`
+- 入参：
+  - `email`
+  - `password`
+  - `confirmPassword`
+  - `code`（邮箱验证码）
+  - `nickname`（可选）
+- 说明：
+  - 注册成功不自动登录、不返回 token
+- 可能返回错误码：
+  - `USR_003`：邮箱已存在
+  - `USR_004`：邮箱验证码无效
+  - `USR_005`：邮箱验证码已过期
+
+### 登录
+`POST /api/auth/login`
+- 入参：
+  - `email`
+  - `password`
+- 返回：
+  - `token`
+  - `expiresIn`（毫秒，来源于配置 `app.jwt.expiration-ms`）
+  - `refreshToken`
+  - `refreshExpiresIn`（毫秒，来源于配置 `app.jwt.refresh-expiration-ms`）
+- 说明：
+  - JWT 的过期时间写入 token 的 `exp` 字段
+- 可能返回错误码：
+  - `USR_001`：用户不存在
+  - `USR_007`：邮箱或密码错误
+  - `USR_008`：登录失败次数过多，请5分钟后再试
+
+## 5. 当前用户接口（推荐）
+前端只需要保存 token/refreshToken，无需传 userId。
+
+- `GET /api/users/me` 获取当前用户信息  
+- `PUT /api/users/me/nickname` 修改当前用户昵称  
+- `DELETE /api/users/me` 注销当前用户
+
+### 刷新
+`POST /api/auth/refresh`
+- 入参：
+  - `refreshToken`
+- 返回：
+  - `token`
+  - `expiresIn`
+  - `refreshToken`（已旋转）
+  - `refreshExpiresIn`
+- 可能返回错误码：
+  - `USR_009`：Refresh token 无效
+
+### 退出
+`POST /api/auth/logout`
+- 入参：
+  - `refreshToken`
+- 说明：
+  - 删除 refresh token，使其无法继续刷新
+- 可能返回错误码：
+  - `USR_009`：Refresh token 无效
+
+#### 刷新策略说明（前端）
+**主动刷新（推荐）**
+- 登录后记录过期时间点：`expireAt = now + expiresIn`
+- 提前刷新（例如提前 5 分钟）：`refreshAt = expireAt - 5 * 60 * 1000`
+- 到点调用 `/api/auth/refresh` 获取新 token
+
+**被动刷新（兜底）**
+- 业务请求返回“未登录/过期”时触发刷新
+- 前端调用 `/api/auth/refresh`，成功后重试原请求
+
+**实践建议**
+- 主动刷新 + 被动刷新结合，体验更平滑
+
 ### 4.3 本地锁（防缓存击穿）
 - 位置：`common/utils/lock/LocalKeyLock`
 - 方法：
@@ -148,6 +263,27 @@ public Result<PageResultVO<Item>> list(PageQueryDTO query) {
     Page<Item> page = new Page<>(query.getPageNo(), query.getPageSize());
     IPage<Item> result = itemMapper.selectPage(page, null);
     return Result.success(PageUtils.toPageResult(result));
+}
+```
+
+### 4.5 内容审核工具
+- 位置：`common/utils/cos/ContentReviewer`
+- 方法：
+  - `reviewText(String text)`
+    - 参数：`text` 待审核文本
+    - 功能：审核文本是否包含违规内容
+    - 返回：违规类型字符串（如 `"包含色情内容"`）或 `"审核失败: {message}"`
+
+实例：
+```java
+// 注入 ContentReviewer 实例
+@Autowired
+private ContentReviewer contentReviewer;
+
+// 调用审核方法
+String reviewResult = contentReviewer.reviewText("这是一个包含色情内容的文本");
+if (!reviewResult.isEmpty()) {
+    // 包含违规内容，根据业务逻辑处理
 }
 ```
 
@@ -227,3 +363,18 @@ mybatis-plus.mapper-locations=classpath*:mapper/**/*.xml
 ## 10. Swagger / Knife4j
 - OpenAPI JSON：`/v3/api-docs`
 - Knife4j UI：`/doc.html`
+
+---
+
+
+## 找回密码
+
+### 发送找回密码验证码
+`POST /api/auth/password/code`
+- 入参：`email`
+- 说明：验证码有效期 90 秒，同一邮箱 60 秒内仅允许发送一次
+
+### 重置密码
+`POST /api/auth/password/reset`
+- 入参：`email`、`password`、`confirmPassword`、`code`
+- 说明：验证码校验通过后修改密码
