@@ -137,4 +137,16 @@ public class RedisService implements IRedisService {
     public Set<Object> getSetMembers(String key) {
         return redisTemplate.opsForSet().members(key);
     }
+
+    @Override
+    public Long removeByPrefix(String prefix) {
+        if (prefix == null || prefix.isEmpty()) {
+            return 0L;
+        }
+        Set<String> keys = redisTemplate.keys(prefix + "*");
+        if (keys == null || keys.isEmpty()) {
+            return 0L;
+        }
+        return redisTemplate.delete(keys);
+    }
 }

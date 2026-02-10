@@ -28,10 +28,15 @@ public class Constants {
         public static final String USER_TOKEN = PREFIX + "user:token:";
         /** 用户 Profile Key 示例：lost_and_found:user:profile:1234567890 */
         public static final String USER_PROFILE = PREFIX + "user:profile:";
+        public static final String USER_PROFILE_BY_EMAIL = PREFIX + "user:profile:email:";
+        public static final String USER_ID_BY_EMAIL = PREFIX + "user:id:email:";
+        public static final String USER_EMAIL_BY_ID = PREFIX + "user:email:id:";
         /** 物品详情 Key 示例：lost_and_found:item:detail:1234567890 */
         public static final String ITEM_DETAIL = PREFIX + "item:detail:";
         /** 物品列表 Key 示例：lost_and_found:item:list:1234567890 */
         public static final String ITEM_LIST = PREFIX + "item:list:";
+        public static final String ITEM_TAGS = PREFIX + "item:tags:item:";
+        public static final String TAG_LIST = PREFIX + "tag:list:";
         /** 物品布隆过滤器 Key 示例：lost_and_found:bloom:item */
         public static final String ITEM_BLOOM = PREFIX + "bloom:item";
         /** 注册验证码 Key 示例：lost_and_found:register:code:test@xx.com */
