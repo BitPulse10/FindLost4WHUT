@@ -4,6 +4,7 @@ import com.whut.lostandfoundforwhut.model.dto.UserCreateDTO;
 import com.whut.lostandfoundforwhut.model.dto.UserNicknameUpdateDTO;
 import com.whut.lostandfoundforwhut.model.dto.UserPasswordUpdateDTO;
 import com.whut.lostandfoundforwhut.model.entity.User;
+import com.whut.lostandfoundforwhut.model.vo.UserPublicVO;
 
 /**
  * @author DXR
@@ -25,6 +26,13 @@ public interface IUserService {
      * @return 用户实体
      */
     User getUserById(Long userId);
+
+    /**
+     * 根据ID获取用户公开信息（用于对外展示）
+     * @param userId 用户ID
+     * @return 用户公开信息
+     */
+    UserPublicVO getPublicUserById(Long userId);
 
     /**
      * 根据邮箱获取用户ID
