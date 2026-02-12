@@ -12,6 +12,7 @@ import com.whut.lostandfoundforwhut.model.dto.UserCreateDTO;
 import com.whut.lostandfoundforwhut.model.dto.UserNicknameUpdateDTO;
 import com.whut.lostandfoundforwhut.model.dto.UserPasswordUpdateDTO;
 import com.whut.lostandfoundforwhut.model.entity.User;
+import com.whut.lostandfoundforwhut.model.vo.UserPublicVO;
 import com.whut.lostandfoundforwhut.service.IRedisService;
 import com.whut.lostandfoundforwhut.service.IUserService;
 import lombok.RequiredArgsConstructor;
@@ -97,6 +98,12 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         }
         writeUserCache(user);
         return user;
+    }
+
+    @Override
+    public UserPublicVO getPublicUserById(Long userId) {
+        User user = getUserById(userId);
+        return UserPublicVO.from(user);
     }
 
     @Override
