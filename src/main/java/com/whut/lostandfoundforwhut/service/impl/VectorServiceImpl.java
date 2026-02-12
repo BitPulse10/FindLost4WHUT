@@ -144,6 +144,7 @@ public class VectorServiceImpl implements IVectorService {
 
     @Override
     public void addImagesToVectorDatabases(Item item, List<String> imageUrls) {
+        System.out.println("进入多张图片处理");
         try {
             if (imageUrls != null && !imageUrls.isEmpty()) {
                 // 处理多模态嵌入：结合文本描述和所有图片信息
@@ -151,8 +152,6 @@ public class VectorServiceImpl implements IVectorService {
 
                 // 为整个物品创建一个多模态嵌入，包含文本描述和所有图片
                 String itemId = "item_" + item.getId();
-
-                System.out.println("图片" + imageUrls);
 
                 // 创建多模态嵌入（文本+所有图片）
                 Embedding embedding = generateMultimodalEmbeddings(itemDescription, imageUrls);
@@ -534,40 +533,39 @@ public class VectorServiceImpl implements IVectorService {
      */
     private Embedding generateMultimodalEmbeddingsViaHttp(String text, List<String> imageUrls) {
         try {
-            // 构建API请求体
+            // 构建API请求体 - 修正为 contents 数组格式
             StringBuilder requestBody = new StringBuilder();
             requestBody.append("{");
-            requestBody.append("\"model\":\"multimodal-embedding-v1\",");
+            requestBody.append("\"model\":\"tongyi-embedding-vision-plus\",");
             requestBody.append("\"input\":{");
             requestBody.append("\"contents\":[");
 
             // 添加文本内容
             if (text != null && !text.trim().isEmpty()) {
-                requestBody.append("{\"text\":\"").append(text.replace("\"", "\\\"")).append("\"}");
-                if (imageUrls != null && !imageUrls.isEmpty()) {
-                    requestBody.append(",");
-                }
+                requestBody.append("{\"text\":\"").append(text.replace("\"", "\\\"")).append("\"},");
             }
-
-            // 添加图片内容
             if (imageUrls != null && !imageUrls.isEmpty()) {
+
+                requestBody.append("{\"multi_images\":[");
                 for (int i = 0; i < imageUrls.size(); i++) {
                     String imageUrl = imageUrls.get(i);
-                    requestBody.append("{\"image\":\"").append(imageUrl.replace("\"", "\\\"")).append("\"}");
+                    requestBody.append("\"").append(imageUrl.replace("\"", "\\\"")).append("\"");
                     if (i < imageUrls.size() - 1) {
                         requestBody.append(",");
                     }
                 }
+                requestBody.append("]}");
             }
-
-            requestBody.append("]}");
-            requestBody.append(",\"parameters\":{");
+            requestBody.append("]");
+            requestBody.append("},");
+            requestBody.append("\"parameters\":{");
+            requestBody.append("\"dimension\":1024,");
             requestBody.append("\"output_type\":\"dense\",");
             requestBody.append("\"fps\":0.5");
             requestBody.append("}}");
 
             String jsonBody = requestBody.toString();
-            log.info("HTTP请求体（多图片）: {}", jsonBody);
+            log.info("HTTP请求体（正确格式）: {}", jsonBody);
 
             // 构建HTTP请求
             HttpRequest request = HttpRequest.newBuilder()
@@ -582,11 +580,11 @@ public class VectorServiceImpl implements IVectorService {
             // 发送请求
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
 
-            log.info("HTTP响应状态码（多图片）: {}", response.statusCode());
+            log.info("HTTP响应状态码: {}", response.statusCode());
 
             if (response.statusCode() == 200) {
                 String responseBody = response.body();
-                log.debug("HTTP响应体（多图片）: {}", responseBody);
+                log.debug("HTTP响应体: {}", responseBody);
 
                 // 解析响应中的embeddings数组
                 int embeddingsStart = responseBody.indexOf("\"embeddings\":[");
@@ -622,10 +620,10 @@ public class VectorServiceImpl implements IVectorService {
                     }
                 }
 
-                log.warn("无法从HTTP响应中提取嵌入向量（多图片）");
+                log.warn("无法从HTTP响应中提取嵌入向量");
                 return null;
             } else {
-                log.warn("HTTP API调用失败（多图片），状态码: {}，响应: {}", response.statusCode(), response.body());
+                log.warn("HTTP API调用失败，状态码: {}，响应: {}", response.statusCode(), response.body());
                 return null;
             }
 

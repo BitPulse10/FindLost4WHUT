@@ -2,6 +2,7 @@ package com.whut.lostandfoundforwhut.controller;
 
 import com.whut.lostandfoundforwhut.common.result.Result;
 import com.whut.lostandfoundforwhut.model.dto.ItemDTO;
+import com.whut.lostandfoundforwhut.model.dto.ItemDTOs;
 import com.whut.lostandfoundforwhut.model.dto.ItemFilterDTO;
 import com.whut.lostandfoundforwhut.model.entity.Item;
 import com.whut.lostandfoundforwhut.model.vo.PageResultVO;
@@ -58,6 +59,37 @@ public class ItemController {
             // 捕获异常后，删除上传的图片
             if (itemDTO.getImageId() != null) {
                 List<Long> imageIds = Arrays.asList(Long.parseLong(String.valueOf(itemDTO.getImageId())));
+                imageService.deleteImagesByIds(imageIds);
+            }
+
+            // 处理业务异常
+            if (e instanceof AppException) {
+                AppException appException = (AppException) e;
+                System.out.println("添加物品时发生业务异常：" + e.getMessage());
+                return Result.fail(appException.getCode(), appException.getInfo());
+            } else {
+                System.out.println("添加物品时发生未知异常：" + e.getMessage());
+                e.printStackTrace();
+                return Result.fail(ResponseCode.UN_ERROR.getCode(), "添加物品失败：" + e.getMessage());
+            }
+        }
+    }
+
+    @PostMapping("/add-items")
+    @Operation(summary = "添加物品列表", description = "添加新的挂失或招领物品")
+    public Result<Item> addItems(
+            @Parameter(description = "Bearer token", required = true) @RequestHeader(value = "Authorization") String authorization,
+            @RequestBody ItemDTOs itemDTOs) {
+        try {
+            Long userId = resolveUserIdFromToken(authorization);
+            Item item = itemService.addItems(itemDTOs, userId);
+            System.out.println("成功创建物品，ID：" + item.getId());
+
+            return Result.success(item);
+        } catch (Exception e) {
+            // 捕获异常后，删除上传的图片
+            if (itemDTOs.getImageIds() != null) {
+                List<Long> imageIds = itemDTOs.getImageIds();
                 imageService.deleteImagesByIds(imageIds);
             }
 
