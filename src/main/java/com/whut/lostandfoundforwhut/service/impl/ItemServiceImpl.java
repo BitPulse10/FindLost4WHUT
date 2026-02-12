@@ -11,6 +11,7 @@ import com.whut.lostandfoundforwhut.mapper.ItemTagMapper;
 import com.whut.lostandfoundforwhut.mapper.TagMapper;
 import com.whut.lostandfoundforwhut.mapper.UserMapper;
 import com.whut.lostandfoundforwhut.model.dto.ItemDTO;
+import com.whut.lostandfoundforwhut.model.dto.ItemDTOs;
 import com.whut.lostandfoundforwhut.model.dto.ItemFilterDTO;
 import com.whut.lostandfoundforwhut.model.dto.ItemTagNameDTO;
 import com.whut.lostandfoundforwhut.model.entity.Item;
@@ -95,6 +96,49 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
         List<String> tagNames = tagService.parseTagText(itemDTO.getTagText());
         tagService.replaceTagsForItem(item.getId(), tagNames);
         item.setTags(tagService.getTagNamesByItemId(item.getId()));
+
+        return item;
+    }
+
+    @Override
+    @Transactional
+    public Item addItems(ItemDTOs itemDTOs, Long userId) {
+        User user = userMapper.selectById(userId);
+        if (user == null) {
+            throw new AppException(ResponseCode.USER_NOT_FOUND.getCode(), ResponseCode.USER_NOT_FOUND.getInfo());
+        }
+
+        // 创建物品
+        Item item = Item.builder()
+                .userId(userId)
+                .type(itemDTOs.getType())
+                .eventTime(itemDTOs.getEventTime())
+                .eventPlace(itemDTOs.getEventPlace())
+                .status(ItemStatus.ACTIVE.getCode())
+                .description(itemDTOs.getDescription())
+                .build();
+
+        // 物品保存到数据库
+        save(item);
+        log.info("物品添加数据库成功：{}", item.getId());
+
+        // 将物品和图片添加到关联表中
+        List<Long> imageIds = itemDTOs.getImageIds();
+        // boolean success = itemImageMapper.insertItemImages(item.getId(), imageIds);
+        // if (!success) {
+        // log.warn("物品图片关联失败，物品ID：{}", item.getId());
+        // }
+
+        // 获取图片的URL
+        List<String> imageUrls = imageMapper.selectUrlsByIds(imageIds);
+
+        // 将物品描述和图片添加到向量数据库
+        vectorService.addImagesToVectorDatabases(item, imageUrls);
+
+        // 解析并绑定标签
+        // List<String> tagNames = tagService.parseTagText(itemDTOs.getTagText());
+        // tagService.replaceTagsForItem(item.getId(), tagNames);
+        // item.setTags(tagService.getTagNamesByItemId(item.getId()));
 
         return item;
     }

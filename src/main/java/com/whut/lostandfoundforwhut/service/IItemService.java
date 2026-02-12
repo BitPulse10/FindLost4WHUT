@@ -2,6 +2,7 @@ package com.whut.lostandfoundforwhut.service;
 
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.whut.lostandfoundforwhut.model.dto.ItemDTO;
+import com.whut.lostandfoundforwhut.model.dto.ItemDTOs;
 import com.whut.lostandfoundforwhut.model.dto.ItemFilterDTO;
 import com.whut.lostandfoundforwhut.model.entity.Item;
 import com.whut.lostandfoundforwhut.model.vo.PageResultVO;
@@ -21,6 +22,15 @@ public interface IItemService extends IService<Item> {
      * @return 物品实体
      */
     Item addItem(ItemDTO itemDTO, Long userId);
+
+    /**
+     * 添加物品列表
+     *
+     * @param itemDTOs 物品DTOs
+     * @param userId   用户ID
+     * @return 物品实体
+     */
+    Item addItems(ItemDTOs itemDTOs, Long userId);
 
     /**
      * 更新物品
