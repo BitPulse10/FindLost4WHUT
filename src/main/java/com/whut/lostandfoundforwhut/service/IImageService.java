@@ -30,6 +30,20 @@ public interface IImageService {
     String getUrlById(Long imageId);
 
     /**
+     * 根据物品ID获取所有图片ID
+     * @param itemId 物品ID
+     * @return 图片ID列表
+     */
+    List<Long> getImageIdsByItemId(Long itemId);
+
+    /**
+     * 根据物品ID获取所有图片URL
+     * @param itemId 物品ID
+     * @return 图片URL列表
+     */
+    List<String> getUrlsByItemId(Long itemId);
+
+    /**
      * 根据 ID 删除图片
      * @param imageIds 图片ID列表
      */

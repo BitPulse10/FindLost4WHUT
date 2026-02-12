@@ -72,25 +72,38 @@ public class ImageController {
             return Result.fail(ResponseCode.UN_ERROR.getCode(), "查询失败: "+e.getMessage());
         }
     }
-    
-    // /**
-    //  * 根据图片ID查询图片信息
-    //  * @param id 图片ID
-    //  * @return 图片实体
-    //  */
-    // @GetMapping("/{id}")
-    // public Result<Image> getImageById(@PathVariable Long id) {
-    //     try {
-    //         Image image = imageService.getImageById(id);
-    //         if (image != null) {
-    //             return Result.success(image);
-    //         } else {
-    //             return Result.fail(ResponseCode.RESOURCE_NOT_FOUND.getCode(), "图片不存在");
-    //         }
-    //     } catch (AppException e) {
-    //         return Result.fail(e.getCode(), e.getMessage());
-    //     } catch (Exception e) {
-    //         return Result.fail(ResponseCode.UN_ERROR.getCode(), "查询失败: "+e.getMessage());
-    //     }
-    // }
+
+    /**
+     * 根据物品ID查询图片的ID列表
+     * @param id 物品ID
+     * @return 图片的ID列表
+     */
+    @GetMapping("/ids/item/{id}")
+    public Result<List<Long>> getImageIdsByItemId(@PathVariable("id") Long id) {
+        try {
+            List<Long> ids = imageService.getImageIdsByItemId(id);
+            return Result.success(ids);
+        } catch (AppException e) {
+            return Result.fail(e.getCode(), e.getMessage());
+        } catch (Exception e) {
+            return Result.fail(ResponseCode.UN_ERROR.getCode(), "查询失败: "+e.getMessage());
+        }
+    }
+
+    /**
+     * 根据图片ID查询图片的URL
+     * @param id 图片ID
+     * @return 图片的URL
+     */
+    @GetMapping("/urls/item/{id}")
+    public Result<List<String>> getImageUrlsByItemId(@PathVariable("id") Long id) {
+        try {
+            List<String> urls = imageService.getUrlsByItemId(id);
+            return Result.success(urls);
+        } catch (AppException e) {
+            return Result.fail(e.getCode(), e.getMessage());
+        } catch (Exception e) {
+            return Result.fail(ResponseCode.UN_ERROR.getCode(), "查询失败: "+e.getMessage());
+        }
+    }
 }
