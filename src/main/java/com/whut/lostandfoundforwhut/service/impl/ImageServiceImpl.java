@@ -8,6 +8,8 @@ import com.whut.lostandfoundforwhut.common.utils.cos.ContentReviewer;
 import com.whut.lostandfoundforwhut.common.utils.cos.ImageProcessor;
 import com.whut.lostandfoundforwhut.common.utils.image.ImageValidator;
 import com.whut.lostandfoundforwhut.mapper.ImageMapper;
+import com.whut.lostandfoundforwhut.mapper.ItemImageMapper;
+import com.whut.lostandfoundforwhut.mapper.ItemMapper;
 import com.whut.lostandfoundforwhut.model.entity.Image;
 import com.whut.lostandfoundforwhut.service.IImageService;
 import com.whut.lostandfoundforwhut.service.IRedisService;
@@ -56,6 +58,10 @@ public class ImageServiceImpl extends ServiceImpl<ImageMapper, Image> implements
 
     @Autowired
     private ImageMapper imageMapper;
+    @Autowired
+    private ItemMapper itemMapper;
+    @Autowired
+    private ItemImageMapper itemImageMapper;
 
     @Autowired
     private IRedisService redisService;
@@ -220,55 +226,31 @@ public class ImageServiceImpl extends ServiceImpl<ImageMapper, Image> implements
         return image.getUrl();
     }
 
-    // /**
-    //  * @description 根据ID获取图片文件
-    //  * @param id 图片ID
-    //  * @return 图片文件
-    //  */
-    // @Override
-    // public File getImageFileById(Long id) {
-    //     Image image = imageMapper.selectById(id);
-    //     if (image == null || image.getUrl() == null) {
-    //         return null;
-    //     }
-    //     File imageFile = new File(uploadDir, image.getUrl());
-    //     if (!imageFile.exists()) {
-    //         return null;
-    //     }
-    //     return imageFile;
-    // }
+    /**
+     * @description 根据物品ID获取所有图片ID
+     * @param itemId 物品ID
+     * @return 图片ID列表
+     */
+    @Override
+    public List<Long> getImageIdsByItemId(Long itemId) {
+        if (itemMapper.selectById(itemId) == null) {
+            throw new AppException(ResponseCode.RESOURCE_NOT_FOUND.getCode(), "物品ID不存在");
+        }
+        return itemImageMapper.getImageIdsByItemId(itemId);
+    }
 
-    // /**
-    //  * @description 删除图片和关联的文件
-    //  * @param imageIds 图片ID列表
-    //  */
-    // @Override
-    // public void deleteImagesAndFiles(List<Long> imageIds) {
-    //     if (imageIds == null || imageIds.isEmpty()) {
-    //         return;
-    //     }
-    //
-    //     // 先删除所有相关的物品-图片关联关系
-    //     int deletedAssociations = itemImageMapper.deleteAllItemImagesByImageIds(imageIds);
-    //     log.info("已删除 {} 条物品-图片关联记录", deletedAssociations);
-    //
-    //     for (Long imageId : imageIds) {
-    //         // 删除本地文件
-    //         File imageFile = getImageFileById(imageId);
-    //         if (imageFile != null && imageFile.exists()) {
-    //             imageFile.delete();
-    //             log.info("已删除图片文件: {}", imageFile.getAbsolutePath());
-    //         }
-    //
-    //         // 删除数据库记录
-    //         boolean deleted = this.removeById(imageId);
-    //         if (deleted) {
-    //             log.info("已删除图片记录，ID: {}", imageId);
-    //         } else {
-    //             log.warn("删除图片记录失败，ID: {}", imageId);
-    //         }
-    //     }
-    // }
+    /**
+     * @description 根据物品ID获取所有图片URL
+     * @param itemId 物品ID
+     * @return 图片URL列表
+     */
+    @Override
+    public List<String> getUrlsByItemId(Long itemId) {
+        if (itemMapper.selectById(itemId) == null) {
+            throw new AppException(ResponseCode.RESOURCE_NOT_FOUND.getCode(), "物品ID不存在");
+        }
+        return itemImageMapper.getImageUrlsByItemId(itemId);
+    }
 
     /**
      * @description 根据ID删除图片和关联的文件
