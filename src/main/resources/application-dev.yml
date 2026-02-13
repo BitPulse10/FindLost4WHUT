@@ -51,6 +51,6 @@ app:
 
 # 阿里云多模态配置
 ai:
+  thirdparty.api-key: ${ALI_VECTOR_ACCESS_KEY_ID}
   ali:
     api-key: "sk-08f879df85a84dfdb8d092289bfbd8ad"
-#

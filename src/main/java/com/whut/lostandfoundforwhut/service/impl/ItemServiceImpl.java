@@ -124,10 +124,10 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
 
         // 将物品和图片添加到关联表中
         List<Long> imageIds = itemDTOs.getImageIds();
-        // boolean success = itemImageMapper.insertItemImages(item.getId(), imageIds);
-        // if (!success) {
-        // log.warn("物品图片关联失败，物品ID：{}", item.getId());
-        // }
+        boolean success = itemImageMapper.insertItemImages(item.getId(), imageIds);
+        if (!success) {
+            log.warn("物品图片关联失败，物品ID：{}", item.getId());
+        }
 
         // 获取图片的URL
         List<String> imageUrls = imageMapper.selectUrlsByIds(imageIds);
@@ -136,9 +136,9 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
         vectorService.addImagesToVectorDatabases(item, imageUrls);
 
         // 解析并绑定标签
-        // List<String> tagNames = tagService.parseTagText(itemDTOs.getTagText());
-        // tagService.replaceTagsForItem(item.getId(), tagNames);
-        // item.setTags(tagService.getTagNamesByItemId(item.getId()));
+        List<String> tagNames = tagService.parseTagText(itemDTOs.getTagText());
+        tagService.replaceTagsForItem(item.getId(), tagNames);
+        item.setTags(tagService.getTagNamesByItemId(item.getId()));
 
         return item;
     }
@@ -387,8 +387,16 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
     @Override
     public List<Item> searchSimilarItems(String query, Long imageId, int maxResults) {
         try {
-            // 获取图片Url
-            String imageUrl = imageMapper.selectById(imageId).getUrl();
+            // 处理查询文本为空的情况
+            if (query == null) {
+                query = "";
+            }
+
+            // 获取图片Url，如果imageId为null则使用空字符串
+            String imageUrl = "";
+            if (imageId != null) {
+                imageUrl = imageMapper.selectById(imageId).getUrl();
+            }
 
             // 使用向量数据库搜索相似的物品ID
             List<String> similarItemIds = vectorService.searchInCollection(query, imageUrl, maxResults);
