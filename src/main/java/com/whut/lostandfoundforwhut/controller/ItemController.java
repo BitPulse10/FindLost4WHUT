@@ -212,9 +212,9 @@ public class ItemController {
     @GetMapping("/search-similar")
     @Operation(summary = "搜索相似物品", description = "在向量数据库中搜索与查询文本相似的物品")
     public Result<List<Item>> searchSimilarItems(
-            @Parameter(description = "查询文本", required = true) @RequestParam String query,
+            @Parameter(description = "查询文本", required = false) @RequestParam(required = false) String query,
             @Parameter(description = "返回结果数量", required = false, example = "5") @RequestParam(defaultValue = "5") int maxResults,
-            @Parameter(description = "图片ID", required = true) @RequestParam(required = true) Long imageId) {
+            @Parameter(description = "图片ID", required = false) @RequestParam(required = false) Long imageId) {
         try {
             List<Item> results = itemService.searchSimilarItems(query, imageId, maxResults);
             log.info("搜索相似物品完成，查询：{}，返回结果数量：{}", query, results.size());

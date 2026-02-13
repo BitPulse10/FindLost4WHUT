@@ -41,7 +41,7 @@ public class ItemDetailServiceImpl implements IItemDetailService {
             tags = new ArrayList<>();
         }
 
-        List<String> imageUrls = imageService.getImageUrlsByItemId(itemId);
+        List<String> imageUrls = imageService.getUrlsByItemId(itemId);
         if (imageUrls == null) {
             imageUrls = new ArrayList<>();
         }

@@ -227,9 +227,17 @@ public class VectorServiceImpl implements IVectorService {
         checkInitialized();
 
         try {
-            if (query == null || query.trim().isEmpty()) {
-                log.warn("查询文本为空，返回空搜索结果");
+            // 检查查询文本和图片是否都为空
+            if ((query == null || query.trim().isEmpty()) &&
+                    (imageUrl == null || imageUrl.trim().isEmpty())) {
+                log.warn("查询文本和图片都为空，返回空搜索结果");
                 return List.of();
+            }
+
+            // 如果只有查询文本为空但有图片，允许继续处理
+            if (query == null || query.trim().isEmpty()) {
+                log.info("查询文本为空，但有图片，进行纯图片搜索");
+                query = ""; // 设置为空字符串而不是返回空结果
             }
 
             if (maxResults <= 0) {
@@ -238,7 +246,12 @@ public class VectorServiceImpl implements IVectorService {
             }
 
             Embedding queryEmbedding;
-            queryEmbedding = generateMultimodalEmbedding(query, imageUrl);
+            List<String> imageUrls = new ArrayList<>();
+            // 只有当imageUrl不为空且不为空白字符串时才添加
+            if (imageUrl != null && !imageUrl.trim().isEmpty()) {
+                imageUrls.add(imageUrl);
+            }
+            queryEmbedding = generateMultimodalEmbeddings(query, imageUrls);
 
             List<EmbeddingMatch<TextSegment>> relevant = embeddingStore.findRelevant(queryEmbedding, maxResults);
 
@@ -536,27 +549,38 @@ public class VectorServiceImpl implements IVectorService {
             // 构建API请求体 - 修正为 contents 数组格式
             StringBuilder requestBody = new StringBuilder();
             requestBody.append("{");
-            requestBody.append("\"model\":\"tongyi-embedding-vision-plus\",");
+            requestBody.append("\"model\":\"qwen3-vl-embedding\",");
             requestBody.append("\"input\":{");
-            requestBody.append("\"contents\":[");
+            requestBody.append("\"contents\":[{");
 
             // 添加文本内容
             if (text != null && !text.trim().isEmpty()) {
-                requestBody.append("{\"text\":\"").append(text.replace("\"", "\\\"")).append("\"},");
+                requestBody.append("\"text\":\"").append(text.replace("\"", "\\\"")).append("\"");
+                // 如果有文本且后面还有有效的图片，则添加逗号
+                boolean hasValidImages = imageUrls != null
+                        && imageUrls.stream().anyMatch(url -> url != null && !url.trim().isEmpty());
+                if (hasValidImages) {
+                    requestBody.append(",");
+                }
             }
-            if (imageUrls != null && !imageUrls.isEmpty()) {
 
-                requestBody.append("{\"multi_images\":[");
+            // 添加图片内容
+            if (imageUrls != null && !imageUrls.isEmpty()) {
+                boolean firstImage = true;
                 for (int i = 0; i < imageUrls.size(); i++) {
                     String imageUrl = imageUrls.get(i);
-                    requestBody.append("\"").append(imageUrl.replace("\"", "\\\"")).append("\"");
-                    if (i < imageUrls.size() - 1) {
-                        requestBody.append(",");
+                    // 只有当图片URL不为空时才添加
+                    if (imageUrl != null && !imageUrl.trim().isEmpty()) {
+                        if (!firstImage) {
+                            requestBody.append(",");
+                        }
+                        requestBody.append("\"image\":\"").append(imageUrl.replace("\"", "\\\"")).append("\"");
+                        firstImage = false;
                     }
                 }
-                requestBody.append("]}");
             }
-            requestBody.append("]");
+
+            requestBody.append("}]");
             requestBody.append("},");
             requestBody.append("\"parameters\":{");
             requestBody.append("\"dimension\":1024,");
@@ -566,7 +590,6 @@ public class VectorServiceImpl implements IVectorService {
 
             String jsonBody = requestBody.toString();
             log.info("HTTP请求体（正确格式）: {}", jsonBody);
-
             // 构建HTTP请求
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(
@@ -585,6 +608,15 @@ public class VectorServiceImpl implements IVectorService {
             if (response.statusCode() == 200) {
                 String responseBody = response.body();
                 log.debug("HTTP响应体: {}", responseBody);
+
+                // 计算向量个数
+                int numVectors = 0;
+                int pos = 0;
+                while ((pos = responseBody.indexOf("\"embedding\":[", pos)) != -1) {
+                    numVectors++;
+                    pos += 13; // 跳过 "\"embedding\":["
+                }
+                log.info("输出结果中的向量个数: {}", numVectors);
 
                 // 解析响应中的embeddings数组
                 int embeddingsStart = responseBody.indexOf("\"embeddings\":[");
