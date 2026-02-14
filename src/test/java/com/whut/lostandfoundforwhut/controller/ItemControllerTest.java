@@ -2,7 +2,6 @@ package com.whut.lostandfoundforwhut.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.whut.lostandfoundforwhut.common.enums.ResponseCode;
-import com.whut.lostandfoundforwhut.common.utils.security.jwt.JwtUtil;
 import com.whut.lostandfoundforwhut.model.dto.ItemDTO;
 import com.whut.lostandfoundforwhut.model.entity.Item;
 import com.whut.lostandfoundforwhut.service.IItemService;
@@ -10,13 +9,10 @@ import com.whut.lostandfoundforwhut.service.IUserService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
-import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
-import com.baomidou.mybatisplus.autoconfigure.MybatisPlusAutoConfiguration;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -46,17 +42,13 @@ class ItemControllerTest {
     private IItemService itemService;
 
     @MockBean
-    private JwtUtil jwtUtil;
-
-    @MockBean
     private IUserService userService;
 
     // ==================== 测试添加物品 ====================
     @Test
     void addItem_resolvesUserFromBearerToken() throws Exception {
-        // 1. Mock JWT 解析和用户 ID 查询
-        when(jwtUtil.getEmail("token")).thenReturn("test@example.com");
-        when(userService.getUserIdByEmail("test@example.com")).thenReturn(1L);
+        // 1. Mock 当前登录用户
+        when(userService.getCurrentUserId()).thenReturn(1L);
 
         // 2. Mock Service 层添加物品的返回结果
         Item mockItem = new Item();
@@ -87,8 +79,7 @@ class ItemControllerTest {
     @Test
     void updateItem_resolvesUserFromBearerToken() throws Exception {
         // 1. Mock 基础依赖
-        when(jwtUtil.getEmail("token")).thenReturn("user@example.com");
-        when(userService.getUserIdByEmail("user@example.com")).thenReturn(2L);
+        when(userService.getCurrentUserId()).thenReturn(2L);
 
         // 2. Mock Service 更新结果
         Item mockItem = new Item();
@@ -116,8 +107,7 @@ class ItemControllerTest {
     @Test
     void takeDownItem_resolvesUserFromBearerToken() throws Exception {
         // 1. Mock 基础依赖
-        when(jwtUtil.getEmail("token")).thenReturn("owner@example.com");
-        when(userService.getUserIdByEmail("owner@example.com")).thenReturn(3L);
+        when(userService.getCurrentUserId()).thenReturn(3L);
 
         // 2. Mock Service 下架结果
         when(itemService.takeDownItem(eq(30L), eq(3L))).thenReturn(true);

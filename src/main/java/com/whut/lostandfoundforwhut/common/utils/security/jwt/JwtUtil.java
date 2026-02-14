@@ -5,8 +5,10 @@ import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
 import io.jsonwebtoken.security.Keys;
+import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 
 import java.nio.charset.StandardCharsets;
 import java.security.Key;
@@ -19,6 +21,8 @@ import java.util.Date;
  */
 @Component
 public class JwtUtil {
+    private static final int MIN_SECRET_LENGTH = 32;
+
     /** JWT 密钥（建议至少 32 位） */
     @Value("${app.jwt.secret}")
     private String secret;
@@ -30,6 +34,19 @@ public class JwtUtil {
     /** 签发者 */
     @Value("${app.jwt.issuer}")
     private String issuer;
+
+    /**
+     * 启动时校验 JWT 关键配置，避免使用空密钥或弱密钥
+     */
+    @PostConstruct
+    public void validateConfig() {
+        if (!StringUtils.hasText(secret)) {
+            throw new IllegalStateException("JWT 密钥未配置，请设置 APP_JWT_SECRET 环境变量");
+        }
+        if (secret.length() < MIN_SECRET_LENGTH) {
+            throw new IllegalStateException("JWT 密钥长度不足，至少需要 32 个字符");
+        }
+    }
 
     /**
      * @author DXR

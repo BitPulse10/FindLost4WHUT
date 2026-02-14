@@ -50,3 +50,4 @@ public class ItemDetailServiceImpl implements IItemDetailService {
         return ItemDetailVO.from(item, tags, imageUrls, publisher);
     }
 }
+

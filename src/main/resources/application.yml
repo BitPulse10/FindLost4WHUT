@@ -1,7 +1,7 @@
 spring:
   config:
     import:
-      - optional:file:.env[.properties]
+      - optional:file:docs/dev-ops/environment/.env[.properties]
   application:
     name: lostAndFoundForWhut
   profiles:
@@ -14,14 +14,14 @@ spring:
 
 app:
   jwt:
-    secret: ChangeThisToA32CharOrLongerSecretKey!
+    secret: ${APP_JWT_SECRET}
     expiration-ms: 86400000
     refresh-expiration-ms: 604800000
     issuer: lostAndFoundForWhut
   security:
     default-username: admin
     default-password: admin123
-    enabled: true # 是否启用安全配置 true:启用 false:不启用
+    enabled: true # 默认开启；即使显式关闭也不会放开接口鉴权
   upload:
     max-file-size: 1MB
 

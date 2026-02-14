@@ -26,6 +26,7 @@ public class CorsConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
         // 允许的前端域名，开发阶段可放开，生产建议收紧
+        // TODO(上线前处理): 当前为开发便利使用通配符，生产环境必须改为明确白名单域名。
         config.setAllowedOriginPatterns(List.of("*"));
         // 允许的请求方法
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"));

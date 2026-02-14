@@ -44,7 +44,7 @@ public interface IImageService {
     List<String> getUrlsByItemId(Long itemId);
 
     /**
-     * 根据 ID 删除图片
+     * 根据ID删除图片
      * @param imageIds 图片ID列表
      */
     void deleteImagesByIds(List<Long> imageIds);

@@ -5,10 +5,11 @@ import com.whut.lostandfoundforwhut.model.dto.ItemDTO;
 import com.whut.lostandfoundforwhut.model.dto.ItemDTOs;
 import com.whut.lostandfoundforwhut.model.dto.ItemFilterDTO;
 import com.whut.lostandfoundforwhut.model.entity.Item;
+import com.whut.lostandfoundforwhut.model.vo.ItemDetailVO;
 import com.whut.lostandfoundforwhut.model.vo.PageResultVO;
 import com.whut.lostandfoundforwhut.service.IImageService;
+import com.whut.lostandfoundforwhut.service.IItemDetailService;
 import com.whut.lostandfoundforwhut.service.IItemService;
-import com.whut.lostandfoundforwhut.common.utils.security.jwt.JwtUtil;
 import com.whut.lostandfoundforwhut.common.enums.ResponseCode;
 import com.whut.lostandfoundforwhut.common.exception.AppException;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -16,7 +17,6 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.util.StringUtils;
 import com.whut.lostandfoundforwhut.service.IUserService;
 import com.whut.lostandfoundforwhut.mapper.ItemImageMapper;
 import org.springframework.web.bind.annotation.*;
@@ -39,18 +39,16 @@ import java.util.Optional;
 public class ItemController {
 
     private final IItemService itemService;
-    private final JwtUtil jwtUtil;
     private final IUserService userService;
     private final IImageService imageService;
+    private final IItemDetailService itemDetailService;
     private final ItemImageMapper itemImageMapper;
 
     @PostMapping("/add-item")
-    @Operation(summary = "添加物品", description = "添加新的挂失或招领物品")
-    public Result<Item> addItem(
-            @Parameter(description = "Bearer token", required = true) @RequestHeader(value = "Authorization") String authorization,
-            @RequestBody ItemDTO itemDTO) {
+    @Operation(summary = "添加物品", description = "添加新的挂失或招领物品 ，返回物品ID")
+    public Result<Item> addItem(@RequestBody ItemDTO itemDTO) {
         try {
-            Long userId = resolveUserIdFromToken(authorization);
+            Long userId = userService.getCurrentUserId();
             Item item = itemService.addItem(itemDTO, userId);
             System.out.println("成功创建物品，ID：" + item.getId());
 
@@ -62,7 +60,7 @@ public class ItemController {
                 imageService.deleteImagesByIds(imageIds);
             }
 
-            // 处理业务异常
+            // 澶勭悊涓氬姟寮傚父
             if (e instanceof AppException) {
                 AppException appException = (AppException) e;
                 System.out.println("添加物品时发生业务异常：" + e.getMessage());
@@ -76,12 +74,10 @@ public class ItemController {
     }
 
     @PostMapping("/add-items")
-    @Operation(summary = "添加物品列表", description = "添加新的挂失或招领物品")
-    public Result<Item> addItems(
-            @Parameter(description = "Bearer token", required = true) @RequestHeader(value = "Authorization") String authorization,
-            @RequestBody ItemDTOs itemDTOs) {
+    @Operation(summary = "添加物品列表", description = "添加新的挂失或招领物品 ，返回物品ID")
+    public Result<Item> addItems(@RequestBody ItemDTOs itemDTOs) {
         try {
-            Long userId = resolveUserIdFromToken(authorization);
+            Long userId = userService.getCurrentUserId();
             Item item = itemService.addItems(itemDTOs, userId);
             System.out.println("成功创建物品，ID：" + item.getId());
 
@@ -93,27 +89,26 @@ public class ItemController {
                 imageService.deleteImagesByIds(imageIds);
             }
 
-            // 处理业务异常
+            // 处理异常
             if (e instanceof AppException) {
                 AppException appException = (AppException) e;
-                System.out.println("添加物品时发生业务异常：" + e.getMessage());
+                System.out.println("添加物品时发生业务异常：" + e.getMessage() + "，错误码：" + appException.getCode());
                 return Result.fail(appException.getCode(), appException.getInfo());
             } else {
                 System.out.println("添加物品时发生未知异常：" + e.getMessage());
                 e.printStackTrace();
-                return Result.fail(ResponseCode.UN_ERROR.getCode(), "添加物品失败：" + e.getMessage());
+                return Result.fail(ResponseCode.UN_ERROR.getCode(), "添加物品失败："    + e.getMessage());
             }
         }
     }
 
     @PutMapping("/update-item")
-    @Operation(summary = "更新物品", description = "通过查询参数更新物品信息")
+    @Operation(summary = "更新物品", description = "通过查询参数更新物品淇℃伅")
     public Result<Item> updateItemByQuery(
             @Parameter(description = "Item ID", required = true) @RequestParam Long itemId,
-            @Parameter(description = "Bearer token", required = true) @RequestHeader(value = "Authorization") String authorization,
             @RequestBody ItemDTO itemDTO) {
         try {
-            Long userId = resolveUserIdFromToken(authorization);
+            Long userId = userService.getCurrentUserId();
             Item updatedItem = itemService.updateItem(itemId, itemDTO, userId);
 
             return Result.success(updatedItem);
@@ -132,10 +127,10 @@ public class ItemController {
                 imageService.deleteImagesByIds(deleteImageIds);
             }
 
-            // 处理业务异常
+            // 澶勭悊涓氬姟寮傚父
             if (e instanceof AppException) {
                 AppException appException = (AppException) e;
-                System.out.println("更新物品时发生业务异常：" + e.getMessage());
+                System.out.println("更新物品时发生业务异常：" + e.getMessage() + "，错误码：" + appException.getCode());
                 return Result.fail(appException.getCode(), appException.getInfo());
             } else {
                 System.out.println("更新物品时发生未知异常：" + e.getMessage());
@@ -148,15 +143,14 @@ public class ItemController {
     @PutMapping("/take-down")
     @Operation(summary = "下架物品", description = "通过查询参数下架物品")
     public Result<Boolean> takeDownItemByQuery(
-            @Parameter(description = "Item ID", required = true) @RequestParam Long itemId,
-            @Parameter(description = "Bearer token", required = true) @RequestHeader(value = "Authorization") String authorization) {
+            @Parameter(description = "Item ID", required = true) @RequestParam Long itemId) {
         try {
-            Long userId = resolveUserIdFromToken(authorization);
+            Long userId = userService.getCurrentUserId();
             boolean success = itemService.takeDownItem(itemId, userId);
 
             return Result.success(success);
         } catch (AppException e) {
-            System.out.println("下架物品时发生业务异常：" + e.getMessage());
+            System.out.println("下架物品时发生业务异常：" + e.getMessage() + "，错误码：" + e.getCode());
             return Result.fail(e.getCode(), e.getInfo());
         } catch (Exception e) {
             System.out.println("下架物品时发生未知异常：" + e.getMessage());
@@ -172,12 +166,27 @@ public class ItemController {
             PageResultVO<Item> result = itemService.filterItems(itemFilterDTO);
             return Result.success(result);
         } catch (AppException e) {
-            System.out.println("筛选物品时发生业务异常：" + e.getMessage());
+            System.out.println("筛选物品时发生业务异常：" + e.getMessage() + "，错误码：" + e.getCode());
             return Result.fail(e.getCode(), e.getInfo());
         } catch (Exception e) {
             System.out.println("筛选物品时发生未知异常：" + e.getMessage());
             e.printStackTrace();
             return Result.fail(ResponseCode.UN_ERROR.getCode(), "筛选物品失败：" + e.getMessage());
+        }
+    }
+
+    @GetMapping("/{itemId}/detail")
+    @Operation(summary = "获取物品详情", description = "返回物品图片、标签、发现时间、发现地点、描述等聚合信息")
+    public Result<ItemDetailVO> getItemDetailById(
+            @Parameter(description = "Item ID", required = true) @PathVariable Long itemId) {
+        try {
+            ItemDetailVO detail = itemDetailService.getItemDetailById(itemId);
+            return Result.success(detail);
+        } catch (AppException e) {
+            return Result.fail(e.getCode(), e.getInfo());
+        } catch (Exception e) {
+            log.error("获取物品详情失败，itemId={}", itemId, e);
+            return Result.fail(ResponseCode.UN_ERROR.getCode(), "获取物品详情失败: " + e.getMessage());
         }
     }
 
@@ -195,16 +204,17 @@ public class ItemController {
     @DeleteMapping("/images")
     @Operation(summary = "删除图片", description = "根据图片ID列表删除图片")
     public Result<Boolean> deleteImages(
-            @Parameter(description = "Bearer token", required = true) @RequestHeader(value = "Authorization") String authorization,
             @Parameter(description = "图片ID列表", required = true) @RequestBody List<Long> imageIds) {
         try {
+            // TODO(上线前删除): 该接口当前仅用于联调测试，存在越权删除风险，生产发布前必须移除。
+            log.warn("测试接口 deleteImages 被调用，请在生产发布前删除该接口");
             imageService.deleteImagesByIds(imageIds);
             return Result.success(true);
         } catch (AppException e) {
             log.warn("删除图片时发生业务异常：{}", e.getMessage());
             return Result.fail(e.getCode(), e.getInfo());
         } catch (Exception e) {
-            log.error("删除图片时发生未知异常：", e);
+            log.error("删除图片时发生未知异常：" + e.getMessage());
             return Result.fail(ResponseCode.UN_ERROR.getCode(), "删除图片失败：" + e.getMessage());
         }
     }
@@ -220,21 +230,12 @@ public class ItemController {
             log.info("搜索相似物品完成，查询：{}，返回结果数量：{}", query, results.size());
             return Result.success(results);
         } catch (Exception e) {
-            log.error("搜索相似物品失败，查询：{}", query, e);
+            log.error("搜索相似物品时发生未知异常：" + e.getMessage());
             return Result.fail(ResponseCode.UN_ERROR.getCode(), "搜索相似物品失败：" + e.getMessage());
         }
     }
-
-    private Long resolveUserIdFromToken(String authorization) {
-        if (!StringUtils.hasText(authorization) || !authorization.startsWith("Bearer ")) {
-            throw new AppException(ResponseCode.NOT_LOGIN.getCode(), ResponseCode.NOT_LOGIN.getInfo());
-        }
-        String token = authorization.substring(7);
-        String email = jwtUtil.getEmail(token);
-        if (!StringUtils.hasText(email)) {
-            throw new AppException(ResponseCode.NOT_LOGIN.getCode(), ResponseCode.NOT_LOGIN.getInfo());
-        }
-        // resolve user id by email via service
-        return userService.getUserIdByEmail(email);
-    }
 }
+
+
+
+

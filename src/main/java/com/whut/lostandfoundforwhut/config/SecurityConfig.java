@@ -17,6 +17,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * @author DXR
@@ -25,6 +26,7 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
  */
 @Configuration
 @EnableMethodSecurity
+@Slf4j
 public class SecurityConfig {
 
     @Resource
@@ -35,38 +37,37 @@ public class SecurityConfig {
      */
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http,
-            @Value("${app.security.enabled:false}") boolean securityEnabled,
+            @Value("${app.security.enabled:true}") boolean securityEnabled,
             JwtAuthenticationFilter jwtAuthenticationFilter)
             throws Exception {
-        // 基础配置：关闭CSRF，前后端分离场景必备
+        // 基础配置：关闭 CSRF，前后端分离场景必备
         http.csrf(AbstractHttpConfigurer::disable);
 
-        if (securityEnabled) {
-            // 启用认证时的配置
-            http
-                    // 无状态会话（JWT不需要Session）
-                    .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                    // 权限规则配置（适配你的Controller接口）
-                    .authorizeHttpRequests(auth -> auth
-                            // 放行注册/登录接口（无需认证）
-                            .requestMatchers("/api/users").permitAll() // POST /api/users 注册
-                            .requestMatchers("/api/auth/**").permitAll() // 其他认证相关接口
-                            .requestMatchers("/error").permitAll() // 错误页面
-                            .requestMatchers("/swagger-ui/**", "/v3/api-docs/**").permitAll() // 放行Swagger文档
-                            // 其余所有请求都需要认证
-                            .anyRequest().authenticated())
-                    // 添加JWT过滤器，在用户名密码过滤器之前执行
-                    .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
-        } else {
-            // 禁用认证时，放行所有请求（方便开发调试）
-            http.authorizeHttpRequests(auth -> auth.anyRequest().permitAll());
+        if (!securityEnabled) {
+            // 禁止通过配置开关放开全部接口，仅记录告警
+            log.warn("检测到 app.security.enabled=false，出于安全原因仍按开启鉴权处理");
         }
+        http
+                // 无状态会话（JWT 不需要 Session）
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                // 权限规则配置（适配你的 Controller 接口）
+                .authorizeHttpRequests(auth -> auth
+                        // 放行注册/登录接口（无需认证）
+                        .requestMatchers("/api/users").permitAll() // POST /api/users 注册
+                        .requestMatchers("/api/auth/**").permitAll() // 其他认证相关接口
+                        .requestMatchers("/error").permitAll() // 错误页面
+                        .requestMatchers("/swagger-ui/**", "/v3/api-docs/**").permitAll() // 放行 Swagger 文档
+                        .requestMatchers("/dev-local-images/**").permitAll() // 开发本地图片访问
+                        // 其余所有请求都需要认证
+                        .anyRequest().authenticated())
+                // 添加 JWT 过滤器，在用户名密码过滤器之前执行
+                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
     }
 
     /**
-     * 创建JWT认证过滤器（适配真实业务的UserDetailsService）
+     * 创建 JWT 认证过滤器（适配真实业务的 UserDetailsService）
      */
     @Bean
     public JwtAuthenticationFilter jwtAuthenticationFilter(UserDetailsService userDetailsService) {
@@ -75,7 +76,7 @@ public class SecurityConfig {
     }
 
     /**
-     * 密码编码器（BCrypt加密，行业标准）
+     * 密码编码器（BCrypt 加密，行业标准）
      */
     @Bean
     public PasswordEncoder passwordEncoder() {
