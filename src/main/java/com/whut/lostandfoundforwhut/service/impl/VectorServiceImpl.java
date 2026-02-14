@@ -103,48 +103,7 @@ public class VectorServiceImpl implements IVectorService {
     }
 
     @Override
-    public void addImagesToVectorDatabase(Item item, String imageUrl) {
-        try {
-            if (imageUrl != null && !imageUrl.trim().isEmpty()) {
-                // 当前仅为物品描述
-                String itemDescription = item.getDescription() != null ? item.getDescription() : "";
-
-                // 为整个物品创建一个多模态嵌入，包含文本描述和图片
-                // 实际添加到向量数据库的ID格式为 item_123
-                String itemId = "item_" + item.getId();
-
-                // 创建多模态嵌入（物品描述+单张图片）
-                Embedding embedding = generateMultimodalEmbedding(itemDescription, imageUrl);
-
-                if (embedding != null) {
-                    // 检查并删除已存在的ID
-                    if (isVectorExists(itemId)) {
-                        try {
-                            embeddingStore.removeAll(List.of(itemId));
-                            log.debug("已删除已存在的向量ID: {}", itemId);
-                        } catch (Exception e) {
-                            log.warn("删除已存在的向量ID失败: {}", itemId, e);
-                        }
-                    }
-
-                    try {
-                        embeddingStore.add(itemId, embedding);
-                        log.info("物品单张图片多模态信息已添加到向量数据库，物品ID：{}", item.getId());
-                    } catch (Exception e) {
-                        log.error("添加向量数据失败，物品ID：{}", item.getId(), e);
-                        // 这里也不抛出异常，因为向量数据库的失败不应影响主业务流程
-                    }
-                }
-            }
-        } catch (Exception e) {
-            log.error("添加物品单张图片到向量数据库时发生异常，物品ID：{}", item.getId(), e);
-            // 这里不抛出异常，因为向量数据库的失败不应影响主业务流程
-        }
-    }
-
-    @Override
-    public void addImagesToVectorDatabases(Item item, List<String> imageUrls) {
-        System.out.println("进入多张图片处理");
+    public void addImagesToVectorDatabase(Item item, List<String> imageUrls) {
         try {
             if (imageUrls != null && !imageUrls.isEmpty()) {
                 // 处理多模态嵌入：结合文本描述和所有图片信息
@@ -154,7 +113,7 @@ public class VectorServiceImpl implements IVectorService {
                 String itemId = "item_" + item.getId();
 
                 // 创建多模态嵌入（文本+所有图片）
-                Embedding embedding = generateMultimodalEmbeddings(itemDescription, imageUrls);
+                Embedding embedding = generateMultimodalEmbedding(itemDescription, imageUrls);
 
                 if (embedding != null) {
 
@@ -184,16 +143,16 @@ public class VectorServiceImpl implements IVectorService {
     }
 
     @Override
-    public void updateVectorDatabase(Item item, String imageUrl) {
+    public void updateVectorDatabase(Item item, List<String> imageUrls) {
         try {
             // 先删除旧的向量数据
             removeFromVectorDatabase(item.getId());
 
-            addImagesToVectorDatabase(item, imageUrl);
+            addImagesToVectorDatabase(item, imageUrls);
 
-            log.info("向量数据库中物品信息已更新，ID：{}，图片URL：{}", item.getId(), imageUrl);
+            log.info("向量数据库中物品信息已更新，ID：{}，图片URLs：{}", item.getId(), imageUrls);
         } catch (Exception e) {
-            log.error("更新向量数据库时发生异常，物品ID：{}，图片URL：{}", item.getId(), imageUrl, e);
+            log.error("更新向量数据库时发生异常，物品ID：{}，图片URLs：{}", item.getId(), imageUrls, e);
             // 这里不抛出异常，因为向量数据库的失败不应影响主业务流程
         }
     }
@@ -223,13 +182,13 @@ public class VectorServiceImpl implements IVectorService {
     }
 
     @Override
-    public List<String> searchInCollection(String query, String imageUrl, int maxResults) {
+    public List<String> searchInCollection(String query, List<String> imageUrls, int maxResults) {
         checkInitialized();
 
         try {
             // 检查查询文本和图片是否都为空
             if ((query == null || query.trim().isEmpty()) &&
-                    (imageUrl == null || imageUrl.trim().isEmpty())) {
+                    (imageUrls == null || imageUrls.isEmpty())) {
                 log.warn("查询文本和图片都为空，返回空搜索结果");
                 return List.of();
             }
@@ -237,7 +196,7 @@ public class VectorServiceImpl implements IVectorService {
             // 如果只有查询文本为空但有图片，允许继续处理
             if (query == null || query.trim().isEmpty()) {
                 log.info("查询文本为空，但有图片，进行纯图片搜索");
-                query = ""; // 设置为空字符串而不是返回空结果
+                query = "";
             }
 
             if (maxResults <= 0) {
@@ -246,12 +205,12 @@ public class VectorServiceImpl implements IVectorService {
             }
 
             Embedding queryEmbedding;
-            List<String> imageUrls = new ArrayList<>();
+            List<String> imageUrlsToSearch = new ArrayList<>();
             // 只有当imageUrl不为空且不为空白字符串时才添加
-            if (imageUrl != null && !imageUrl.trim().isEmpty()) {
-                imageUrls.add(imageUrl);
+            if (imageUrls != null && !imageUrls.isEmpty()) {
+                imageUrlsToSearch.addAll(imageUrls);
             }
-            queryEmbedding = generateMultimodalEmbeddings(query, imageUrls);
+            queryEmbedding = generateMultimodalEmbedding(query, imageUrlsToSearch);
 
             List<EmbeddingMatch<TextSegment>> relevant = embeddingStore.findRelevant(queryEmbedding, maxResults);
 
@@ -259,10 +218,10 @@ public class VectorServiceImpl implements IVectorService {
             for (EmbeddingMatch<TextSegment> match : relevant) {
                 results.add(match.embeddingId());
             }
-            log.info("向量搜索完成，查询：{}，图片URL：{}，返回结果数量：{}", query, imageUrl, results.size());
+            log.info("向量搜索完成，查询：{}，图片URLs：{}，返回结果数量：{}", query, imageUrls, results.size());
             return results;
         } catch (Exception e) {
-            log.error("向量搜索失败，查询：{}，图片URL：{}", query, imageUrl, e);
+            log.error("向量搜索失败，查询：{}，图片URLs：{}", query, imageUrls, e);
             throw new RuntimeException("向量搜索失败", e);
         }
     }
@@ -396,31 +355,6 @@ public class VectorServiceImpl implements IVectorService {
     }
 
     /**
-     * 生成多模态嵌入向量（文本+单张图片）
-     * 
-     * @param text     输入文本
-     * @param imageUrl 图片URL
-     * @return 嵌入向量
-     */
-    public Embedding generateMultimodalEmbedding(String text, String imageUrl) {
-        System.out.println("进入单张处理");
-        // 使用Http方法
-        try {
-            Embedding httpResult = generateMultimodalEmbeddingViaHttp(text, imageUrl);
-            if (httpResult != null) {
-                log.debug("单图片多模态嵌入生成成功（Http方式）");
-                return httpResult;
-            } else {
-                log.error("通过HTTP API生成单图片多模态嵌入失败");
-                throw new RuntimeException("通过HTTP API生成单图片多模态嵌入失败");
-            }
-        } catch (Exception e) {
-            log.error("使用HTTP生成单图片多模态嵌入失败: {}", e.getMessage(), e);
-            throw new RuntimeException("HTTP请求失败: " + e.getMessage(), e);
-        }
-    }
-
-    /**
      * 生成多模态嵌入向量（文本+图像列表）
      * 使用HTTP API方式
      * 
@@ -428,7 +362,7 @@ public class VectorServiceImpl implements IVectorService {
      * @param imageUrls 图像数据
      * @return 嵌入向量
      */
-    public Embedding generateMultimodalEmbeddings(String text, List<String> imageUrls) {
+    public Embedding generateMultimodalEmbedding(String text, List<String> imageUrls) {
         System.out.println("进入多张处理");
         // 使用HTTP方法处理多张图片
         try {
@@ -447,106 +381,11 @@ public class VectorServiceImpl implements IVectorService {
     }
 
     /**
-     * 通过HTTP API生成多模态嵌入向量（单张图片版本）
-     */
-    private Embedding generateMultimodalEmbeddingViaHttp(String text, String imageUrl) {
-        try {
-            // 构建API请求体
-            StringBuilder requestBody = new StringBuilder();
-            requestBody.append("{");
-            requestBody.append("\"model\":\"multimodal-embedding-v1\",");
-            requestBody.append("\"input\":{");
-            requestBody.append("\"contents\":[");
-            requestBody.append("{");
-            requestBody.append("\"text\":\"").append(text != null ? text.replace("\"", "\\\"") : "").append("\"");
-
-            if (imageUrl != null && !imageUrl.trim().isEmpty()) {
-                requestBody.append(",\"image\":\"").append(imageUrl.replace("\"", "\\\"")).append("\"");
-            }
-
-            requestBody.append("}");
-            requestBody.append("]}");
-            requestBody.append(",\"parameters\":{");
-            requestBody.append("\"output_type\":\"dense\",");
-            requestBody.append("\"fps\":0.5");
-            requestBody.append("}}");
-
-            String jsonBody = requestBody.toString();
-            log.info("HTTP请求体: {}", jsonBody);
-
-            // 构建HTTP请求
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(
-                            "https://dashscope.aliyuncs.com/api/v1/services/embeddings/multimodal-embedding/multimodal-embedding"))
-                    .header("Authorization", "Bearer " + dashScopeApiKey)
-                    .header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(jsonBody))
-                    .timeout(Duration.ofSeconds(30))
-                    .build();
-
-            // 发送请求
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-
-            log.info("HTTP响应状态码: {}", response.statusCode());
-
-            if (response.statusCode() == 200) {
-                String responseBody = response.body();
-                log.debug("HTTP响应体: {}", responseBody);
-
-                // 解析响应中的embeddings数组 - DashScope multimodal-embedding-v1返回一个embedding对象
-                int embeddingsStart = responseBody.indexOf("\"embeddings\":[");
-                if (embeddingsStart != -1) {
-                    // 找到embeddings数组的结束位置
-                    int embeddingsEnd = responseBody.lastIndexOf("]");
-                    if (embeddingsEnd != -1) {
-                        String embeddingsPart = responseBody.substring(embeddingsStart + 14, embeddingsEnd);
-
-                        // 提取第一个embedding（可以是text、image或video类型的embedding）
-                        int firstEmbeddingStart = embeddingsPart.indexOf("\"embedding\":[");
-                        if (firstEmbeddingStart != -1) {
-                            firstEmbeddingStart = embeddingsPart.indexOf("[", firstEmbeddingStart);
-                            int firstEmbeddingEnd = findMatchingBracket(embeddingsPart, firstEmbeddingStart);
-                            if (firstEmbeddingEnd != -1) {
-                                String embeddingStr = embeddingsPart.substring(firstEmbeddingStart + 1,
-                                        firstEmbeddingEnd);
-                                String[] values = embeddingStr.split(",");
-
-                                float[] embeddingArray = new float[values.length];
-                                for (int i = 0; i < values.length; i++) {
-                                    try {
-                                        embeddingArray[i] = Float.parseFloat(values[i].trim());
-                                    } catch (NumberFormatException e) {
-                                        log.warn("解析嵌入向量数值失败: {}", values[i]);
-                                        return null;
-                                    }
-                                }
-
-                                log.info("通过HTTP API成功生成单图片多模态嵌入向量，维度: {}", embeddingArray.length);
-                                return Embedding.from(embeddingArray);
-                            }
-                        }
-                    }
-                }
-
-                log.warn("无法从HTTP响应中提取嵌入向量");
-                return null;
-            } else {
-                log.warn("HTTP API调用失败，状态码: {}，响应: {}", response.statusCode(), response.body());
-                return null;
-            }
-
-        } catch (Exception e) {
-            log.warn("通过HTTP API生成多模态嵌入向量时发生异常: {}", e.getMessage(), e);
-            return null;
-        }
-    }
-
-    /**
-     * 通过HTTP API生成多模态嵌入向量（多张图片版本）
+     * 通过HTTP API生成多模态嵌入向量
      */
     private Embedding generateMultimodalEmbeddingsViaHttp(String text, List<String> imageUrls) {
         try {
-            // 构建API请求体 - 修正为 contents 数组格式
+            // 构建API请求
             StringBuilder requestBody = new StringBuilder();
             requestBody.append("{");
             requestBody.append("\"model\":\"qwen3-vl-embedding\",");
