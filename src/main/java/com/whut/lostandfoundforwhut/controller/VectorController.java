@@ -28,22 +28,6 @@ public class VectorController {
 
     private final IVectorService vectorService;
 
-    @GetMapping("/search")
-    @Operation(summary = "向量搜索", description = "在向量数据库中搜索相似文本")
-    public Result<List<String>> searchInCollection(
-            @Parameter(description = "查询文本", required = true) @RequestParam String query,
-            @Parameter(description = "图片URL", required = false) @RequestParam(required = false) String imageUrl,
-            @Parameter(description = "返回结果数量", required = false, example = "5") @RequestParam(defaultValue = "5") int maxResults) {
-        try {
-            List<String> results = vectorService.searchInCollection(query, imageUrl, maxResults);
-            log.info("向量搜索完成，查询：{}，图片URL：{}，返回结果数量：{}", query, imageUrl, results.size());
-            return Result.success(results);
-        } catch (Exception e) {
-            log.error("向量搜索失败，查询：{}，图片URL：{}", query, imageUrl, e);
-            return Result.fail(ResponseCode.UN_ERROR.getCode(), "向量搜索失败：" + e.getMessage());
-        }
-    }
-
     @DeleteMapping("/delete/{id}")
     @Operation(summary = "删除向量数据", description = "从向量数据库中删除指定ID的物品")
     public Result<Void> deleteFromCollection(

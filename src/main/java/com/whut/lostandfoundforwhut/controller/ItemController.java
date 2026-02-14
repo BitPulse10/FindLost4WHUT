@@ -2,7 +2,6 @@ package com.whut.lostandfoundforwhut.controller;
 
 import com.whut.lostandfoundforwhut.common.result.Result;
 import com.whut.lostandfoundforwhut.model.dto.ItemDTO;
-import com.whut.lostandfoundforwhut.model.dto.ItemDTOs;
 import com.whut.lostandfoundforwhut.model.dto.ItemFilterDTO;
 import com.whut.lostandfoundforwhut.model.entity.Item;
 import com.whut.lostandfoundforwhut.model.vo.ItemDetailVO;
@@ -46,7 +45,7 @@ public class ItemController {
 
     @PostMapping("/add-item")
     @Operation(summary = "添加物品", description = "添加新的挂失或招领物品 ，返回物品ID")
-    public Result<Item> addItem(@RequestBody ItemDTO itemDTO) {
+    public Result<Item> addItems(@RequestBody ItemDTO itemDTO) {
         try {
             Long userId = userService.getCurrentUserId();
             Item item = itemService.addItem(itemDTO, userId);
@@ -55,37 +54,8 @@ public class ItemController {
             return Result.success(item);
         } catch (Exception e) {
             // 捕获异常后，删除上传的图片
-            if (itemDTO.getImageId() != null) {
-                List<Long> imageIds = Arrays.asList(Long.parseLong(String.valueOf(itemDTO.getImageId())));
-                imageService.deleteImagesByIds(imageIds);
-            }
-
-            // 澶勭悊涓氬姟寮傚父
-            if (e instanceof AppException) {
-                AppException appException = (AppException) e;
-                System.out.println("添加物品时发生业务异常：" + e.getMessage());
-                return Result.fail(appException.getCode(), appException.getInfo());
-            } else {
-                System.out.println("添加物品时发生未知异常：" + e.getMessage());
-                e.printStackTrace();
-                return Result.fail(ResponseCode.UN_ERROR.getCode(), "添加物品失败：" + e.getMessage());
-            }
-        }
-    }
-
-    @PostMapping("/add-items")
-    @Operation(summary = "添加物品列表", description = "添加新的挂失或招领物品 ，返回物品ID")
-    public Result<Item> addItems(@RequestBody ItemDTOs itemDTOs) {
-        try {
-            Long userId = userService.getCurrentUserId();
-            Item item = itemService.addItems(itemDTOs, userId);
-            System.out.println("成功创建物品，ID：" + item.getId());
-
-            return Result.success(item);
-        } catch (Exception e) {
-            // 捕获异常后，删除上传的图片
-            if (itemDTOs.getImageIds() != null) {
-                List<Long> imageIds = itemDTOs.getImageIds();
+            if (itemDTO.getImageIds() != null) {
+                List<Long> imageIds = itemDTO.getImageIds();
                 imageService.deleteImagesByIds(imageIds);
             }
 
@@ -97,7 +67,7 @@ public class ItemController {
             } else {
                 System.out.println("添加物品时发生未知异常：" + e.getMessage());
                 e.printStackTrace();
-                return Result.fail(ResponseCode.UN_ERROR.getCode(), "添加物品失败："    + e.getMessage());
+                return Result.fail(ResponseCode.UN_ERROR.getCode(), "添加物品失败：" + e.getMessage());
             }
         }
     }
@@ -114,7 +84,7 @@ public class ItemController {
             return Result.success(updatedItem);
         } catch (Exception e) {
             // 捕获异常后，删除要删除的图片
-            Long updateImageId = itemDTO.getImageId();
+            List<Long> updateImageId = itemDTO.getImageIds();
             List<Long> oldImageIds = Optional.ofNullable(itemImageMapper.getImageIdsByItemId(itemId))
                     .orElse(new ArrayList<>()); // 获取旧图片实体列表
             List<Long> deleteImageIds = new ArrayList<>();
@@ -127,7 +97,6 @@ public class ItemController {
                 imageService.deleteImagesByIds(deleteImageIds);
             }
 
-            // 澶勭悊涓氬姟寮傚父
             if (e instanceof AppException) {
                 AppException appException = (AppException) e;
                 System.out.println("更新物品时发生业务异常：" + e.getMessage() + "，错误码：" + appException.getCode());
@@ -224,9 +193,9 @@ public class ItemController {
     public Result<List<Item>> searchSimilarItems(
             @Parameter(description = "查询文本", required = false) @RequestParam(required = false) String query,
             @Parameter(description = "返回结果数量", required = false, example = "5") @RequestParam(defaultValue = "5") int maxResults,
-            @Parameter(description = "图片ID", required = false) @RequestParam(required = false) Long imageId) {
+            @Parameter(description = "图片ID", required = false) @RequestParam(required = false) List<Long> imageIds) {
         try {
-            List<Item> results = itemService.searchSimilarItems(query, imageId, maxResults);
+            List<Item> results = itemService.searchSimilarItems(query, imageIds, maxResults);
             log.info("搜索相似物品完成，查询：{}，返回结果数量：{}", query, results.size());
             return Result.success(results);
         } catch (Exception e) {
@@ -235,7 +204,3 @@ public class ItemController {
         }
     }
 }
-
-
-
-

@@ -11,7 +11,6 @@ import com.whut.lostandfoundforwhut.mapper.ItemTagMapper;
 import com.whut.lostandfoundforwhut.mapper.TagMapper;
 import com.whut.lostandfoundforwhut.mapper.UserMapper;
 import com.whut.lostandfoundforwhut.model.dto.ItemDTO;
-import com.whut.lostandfoundforwhut.model.dto.ItemDTOs;
 import com.whut.lostandfoundforwhut.model.dto.ItemFilterDTO;
 import com.whut.lostandfoundforwhut.model.dto.ItemTagNameDTO;
 import com.whut.lostandfoundforwhut.model.entity.Item;
@@ -79,51 +78,7 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
         log.info("物品添加数据库成功：{}", item.getId());
 
         // 将物品和图片添加到关联表中
-        Long imageId = itemDTO.getImageId();
-        List<Long> imageIds = Arrays.asList(imageId);
-        boolean success = itemImageMapper.insertItemImages(item.getId(), imageIds);
-        if (!success) {
-            log.warn("物品图片关联失败，物品ID：{}", item.getId());
-        }
-
-        // 获取图片的URL
-        String imageUrl = imageMapper.selectById(imageId).getUrl();
-
-        // 将物品描述和图片添加到向量数据库
-        vectorService.addImagesToVectorDatabase(item, imageUrl);
-
-        // 解析并绑定标签
-        List<String> tagNames = tagService.parseTagText(itemDTO.getTagText());
-        tagService.replaceTagsForItem(item.getId(), tagNames);
-        item.setTags(tagService.getTagNamesByItemId(item.getId()));
-
-        return item;
-    }
-
-    @Override
-    @Transactional
-    public Item addItems(ItemDTOs itemDTOs, Long userId) {
-        User user = userMapper.selectById(userId);
-        if (user == null) {
-            throw new AppException(ResponseCode.USER_NOT_FOUND.getCode(), ResponseCode.USER_NOT_FOUND.getInfo());
-        }
-
-        // 创建物品
-        Item item = Item.builder()
-                .userId(userId)
-                .type(itemDTOs.getType())
-                .eventTime(itemDTOs.getEventTime())
-                .eventPlace(itemDTOs.getEventPlace())
-                .status(ItemStatus.ACTIVE.getCode())
-                .description(itemDTOs.getDescription())
-                .build();
-
-        // 物品保存到数据库
-        save(item);
-        log.info("物品添加数据库成功：{}", item.getId());
-
-        // 将物品和图片添加到关联表中
-        List<Long> imageIds = itemDTOs.getImageIds();
+        List<Long> imageIds = itemDTO.getImageIds();
         boolean success = itemImageMapper.insertItemImages(item.getId(), imageIds);
         if (!success) {
             log.warn("物品图片关联失败，物品ID：{}", item.getId());
@@ -133,10 +88,10 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
         List<String> imageUrls = imageMapper.selectUrlsByIds(imageIds);
 
         // 将物品描述和图片添加到向量数据库
-        vectorService.addImagesToVectorDatabases(item, imageUrls);
+        vectorService.addImagesToVectorDatabase(item, imageUrls);
 
         // 解析并绑定标签
-        List<String> tagNames = tagService.parseTagText(itemDTOs.getTagText());
+        List<String> tagNames = tagService.parseTagText(itemDTO.getTagText());
         tagService.replaceTagsForItem(item.getId(), tagNames);
         item.setTags(tagService.getTagNamesByItemId(item.getId()));
 
@@ -159,16 +114,14 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
                     ResponseCode.ITEM_STATUS_INVALID.getInfo());
         }
 
-        // 获取当前物品的图片ID用于比较
+        // 获取当前物品的图片ID列表用于比较
         List<Long> currentImageIds = itemImageMapper.getImageIdsByItemId(itemId);
-        Long currentImageId = currentImageIds.isEmpty() ? null : currentImageIds.get(0);
-
         // 检查是否有变化需要触发向量库更新
         String newDescription = itemDTO.getDescription();
-        Long newImageId = itemDTO.getImageId();
+        List<Long> newImageIds = itemDTO.getImageIds();
 
         boolean descriptionChanged = newDescription != null && !newDescription.equals(existingItem.getDescription());
-        boolean imageChanged = detectImageChange(currentImageId, newImageId);
+        boolean imageChanged = detectImageChange(currentImageIds, newImageIds);
         boolean needVectorUpdate = descriptionChanged || imageChanged;
 
         // 更新物品基本信息字段
@@ -176,12 +129,12 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
 
         // 如果描述或图片发生变化，处理图片关联和向量库更新
         if (needVectorUpdate) {
-            handleImageUpdate(existingItem, newImageId);
+            handleImageUpdate(existingItem, newImageIds);
 
             // 更新向量数据库
-            if (newImageId != null) {
-                String imageUrl = imageMapper.selectById(newImageId).getUrl();
-                vectorService.updateVectorDatabase(existingItem, imageUrl);
+            if (newImageIds != null && !newImageIds.isEmpty()) {
+                List<String> imageUrls = imageMapper.selectUrlsByIds(newImageIds);
+                vectorService.updateVectorDatabase(existingItem, imageUrls);
                 log.info("向量数据库已更新，物品ID：{}", existingItem.getId());
             }
         }
@@ -217,17 +170,21 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
     /**
      * 检测图片是否发生变化
      */
-    private boolean detectImageChange(Long oldImageId, Long newImageId) {
-        if (newImageId == null) {
-            return oldImageId != null;
+    private boolean detectImageChange(List<Long> oldImageIds, List<Long> newImageIds) {
+        if (newImageIds == null) {
+            return oldImageIds != null && !oldImageIds.isEmpty();
         }
-        return !newImageId.equals(oldImageId);
+        if (oldImageIds == null) {
+            return !newImageIds.isEmpty();
+        }
+        // 比较两个列表是否相同（不考虑顺序）
+        return !(oldImageIds.size() == newImageIds.size() && oldImageIds.containsAll(newImageIds));
     }
 
     /**
      * 处理图片更新：删除旧关联，添加新关联
      */
-    private void handleImageUpdate(Item existingItem, Long newImageId) {
+    private void handleImageUpdate(Item existingItem, List<Long> newImageIds) {
         Long itemId = existingItem.getId();
 
         // 删除旧的物品-图片关联
@@ -235,13 +192,12 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
         log.info("已删除物品的旧图片关联，物品ID：{}", itemId);
 
         // 添加新的物品-图片关联
-        if (newImageId != null) {
-            List<Long> imageIds = Arrays.asList(newImageId);
-            boolean success = itemImageMapper.insertItemImages(itemId, imageIds);
+        if (newImageIds != null && !newImageIds.isEmpty()) {
+            boolean success = itemImageMapper.insertItemImages(itemId, newImageIds);
             if (success) {
-                log.info("已添加物品的新图片关联，物品ID：{}，图片ID：{}", itemId, newImageId);
+                log.info("已添加物品的新图片关联，物品ID：{}，图片ID列表：{}", itemId, newImageIds);
             } else {
-                log.warn("物品图片关联添加失败，物品ID：{}，图片ID：{}", itemId, newImageId);
+                log.warn("物品图片关联添加失败，物品ID：{}，图片ID列表：{}", itemId, newImageIds);
             }
         }
     }
@@ -385,21 +341,24 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
     }
 
     @Override
-    public List<Item> searchSimilarItems(String query, Long imageId, int maxResults) {
+    public List<Item> searchSimilarItems(String query, List<Long> imageIds, int maxResults) {
         try {
             // 处理查询文本为空的情况
             if (query == null) {
                 query = "";
             }
 
-            // 获取图片Url，如果imageId为null则使用空字符串
-            String imageUrl = "";
-            if (imageId != null) {
-                imageUrl = imageMapper.selectById(imageId).getUrl();
+            // 获取图片Url列表
+            List<String> imageUrls = new ArrayList<>();
+            if (imageIds != null && !imageIds.isEmpty()) {
+                imageUrls = imageMapper.selectUrlsByIds(imageIds);
             }
 
             // 使用向量数据库搜索相似的物品ID
-            List<String> similarItemIds = vectorService.searchInCollection(query, imageUrl, maxResults);
+            List<String> similarItemIds = vectorService.searchInCollection(query, imageUrls, maxResults);
+
+            log.info("向量服务返回的ID列表: {}", similarItemIds);
+            log.info("向量服务返回ID数量: {}", similarItemIds.size());
 
             // 将向量数据库返回的ID转换为Long类型的物品ID
             List<Long> itemIds = similarItemIds.stream()

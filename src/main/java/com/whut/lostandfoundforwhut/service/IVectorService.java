@@ -15,27 +15,20 @@ public interface IVectorService {
     void initializeCollection();
 
     /**
-     * 添加物品的图片到向量数据库
+     * 添加物品的单张图片到向量数据库
      *
      * @param item      物品实体
      * @param imageUrls 图片URL列表
      */
-    void addImagesToVectorDatabases(Item item, List<String> imageUrls);
-
-    /**
-     * 添加物品的单张图片到向量数据库
-     *
-     * @param item     物品实体
-     * @param imageUrl 图片URL
-     */
-    void addImagesToVectorDatabase(Item item, String imageUrl);
+    void addImagesToVectorDatabase(Item item, List<String> imageUrls);
 
     /**
      * 更新向量数据库中的物品信息
      *
-     * @param item 更新后的物品实体
+     * @param item      更新后的物品实体
+     * @param imageUrls 图片URL列表
      */
-    void updateVectorDatabase(Item item, String imageUrl);
+    void updateVectorDatabase(Item item, List<String> imageUrls);
 
     /**
      * 从向量数据库中删除物品信息
@@ -48,11 +41,11 @@ public interface IVectorService {
      * 在向量数据库中搜索相似文本
      *
      * @param query      查询文本
-     * @param imageUrl   图片URL
+     * @param imageUrls  图片URLs列表
      * @param maxResults 返回最相近的k个结果
      * @return 匹配的ID列表
      */
-    List<String> searchInCollection(String query, String imageUrl, int maxResults);
+    List<String> searchInCollection(String query, List<String> imageUrls, int maxResults);
 
     /**
      * 获取集合中的所有条目
