@@ -37,7 +37,7 @@ DROP TABLE IF EXISTS `items`;
 CREATE TABLE items (
   id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '自增主键',
   user_id BIGINT NOT NULL COMMENT '发布用户的数据库主键ID',
-  type TINYINT NOT NULL COMMENT '物品类型：0-挂失（丢失），1-招领（捡到）',
+  type TINYINT NOT NULL COMMENT '物品类型：0-挂失（丢失），1-招领（捡到），2-卡证',
   event_time DATETIME COMMENT '事件发生时间（丢失或捡到时间）',
   event_place VARCHAR(255) COMMENT '事件发生地点（丢失或捡到地点）',
   status TINYINT DEFAULT 0 COMMENT '物品状态：0-有效，1-结束',
@@ -117,6 +117,95 @@ CREATE INDEX idx_item_tags_tag_item ON item_tags(tag_id, item_id);
 CREATE INDEX idx_item_images_item_id ON item_images(item_id);
 CREATE INDEX idx_item_images_image_id ON item_images(image_id);
 CREATE INDEX idx_users_email ON users(email);
+
+INSERT INTO users (email, password_hash, nickname, status)
+VALUES
+    ('user01@whut.edu.cn', '$2a$10$7EqJtq98hPqEX7fNZaFWoOeS2S3hYjzQ6lQq8KcQ5kYy1nE1M8y2m', '拾物同学01', 0),
+    ('user02@whut.edu.cn', '$2a$10$7EqJtq98hPqEX7fNZaFWoOeS2S3hYjzQ6lQq8KcQ5kYy1nE1M8y2m', '拾物同学02', 0),
+    ('user03@whut.edu.cn', '$2a$10$7EqJtq98hPqEX7fNZaFWoOeS2S3hYjzQ6lQq8KcQ5kYy1nE1M8y2m', '拾物同学03', 0),
+    ('user04@whut.edu.cn', '$2a$10$7EqJtq98hPqEX7fNZaFWoOeS2S3hYjzQ6lQq8KcQ5kYy1nE1M8y2m', '拾物同学04', 0),
+    ('user05@whut.edu.cn', '$2a$10$7EqJtq98hPqEX7fNZaFWoOeS2S3hYjzQ6lQq8KcQ5kYy1nE1M8y2m', '拾物同学05', 0),
+    ('user06@whut.edu.cn', '$2a$10$7EqJtq98hPqEX7fNZaFWoOeS2S3hYjzQ6lQq8KcQ5kYy1nE1M8y2m', '拾物同学06', 0),
+    ('user07@whut.edu.cn', '$2a$10$7EqJtq98hPqEX7fNZaFWoOeS2S3hYjzQ6lQq8KcQ5kYy1nE1M8y2m', '拾物同学07', 0),
+    ('user08@whut.edu.cn', '$2a$10$7EqJtq98hPqEX7fNZaFWoOeS2S3hYjzQ6lQq8KcQ5kYy1nE1M8y2m', '拾物同学08', 0),
+    ('user09@whut.edu.cn', '$2a$10$7EqJtq98hPqEX7fNZaFWoOeS2S3hYjzQ6lQq8KcQ5kYy1nE1M8y2m', '拾物同学09', 0),
+    ('user10@whut.edu.cn', '$2a$10$7EqJtq98hPqEX7fNZaFWoOeS2S3hYjzQ6lQq8KcQ5kYy1nE1M8y2m', '拾物同学10', 0);
+
+
+-- 先清空 items 表（可选，避免重复插入）
+-- TRUNCATE TABLE items;
+
+-- 批量插入 100 条物品数据，关联已存在的用户 ID
+INSERT INTO items (
+    user_id, type, event_time, event_place, status, is_deleted, description, created_at, updated_at
+)
+WITH RECURSIVE seq AS (
+    SELECT 1 AS n
+    UNION ALL
+    SELECT n + 1 FROM seq WHERE n < 100
+),
+-- 临时表：获取 users 表的 ID 并编号（1-10）
+               user_ids AS (
+                   SELECT id, ROW_NUMBER() OVER (ORDER BY id) AS row_num
+                   FROM users
+                   LIMIT 10 -- 只取前 10 个用户
+               )
+SELECT
+    -- 按行号匹配，确保 user_id 是 users 表中真实存在的 ID
+    (SELECT id FROM user_ids WHERE row_num = ((n - 1) % 10) + 1) AS user_id,
+    CASE
+        WHEN n % 10 IN (0, 5, 9) THEN 2
+        ELSE n % 2
+    END AS type, -- 0/1/2 区分挂失/招领/卡证
+    DATE_SUB(NOW(), INTERVAL (n * 3) HOUR) AS event_time,
+    -- 随机取 8 个地点
+    ELT(((n - 1) % 8) + 1, '南湖食堂', '鉴湖主楼', '图书馆', '西院操场', '梅苑宿舍', '东院教学楼', '北门快递点', '校医院') AS event_place,
+    0 AS status,
+    0 AS is_deleted,
+    -- 拼接描述信息
+    CONCAT(
+            CASE
+                WHEN n % 10 IN (0, 5, 9) THEN '卡证：'
+                WHEN n % 2 = 0 THEN '挂失：'
+                ELSE '招领：'
+            END,
+            ELT(((n - 1) % 10) + 1, '黑色双肩包', '校园卡', '银色水杯', '蓝牙耳机', '机械键盘', '雨伞', 'U盘', '眼镜盒', '白色充电器', '笔记本电脑'),
+            '，编号#', LPAD(n, 3, '0'),
+            '，请失主/拾主尽快联系。'
+    ) AS description,
+    DATE_SUB(NOW(), INTERVAL (n * 3 - 1) HOUR) AS created_at,
+    DATE_SUB(NOW(), INTERVAL (n * 3 - 1) HOUR) AS updated_at
+FROM seq;
+
+-- ----------------------
+-- 测试种子数据：随机100个标签
+-- ----------------------
+INSERT INTO tags (name)
+WITH RECURSIVE seq_tag AS (
+    SELECT 1 AS n
+    UNION ALL
+    SELECT n + 1 FROM seq_tag WHERE n < 100
+)
+SELECT CONCAT(
+               ELT(((n - 1) % 12) + 1, '黑色', '白色', '蓝色', '红色', '防水', '轻便', '金属', '塑料', '电子', '证件', '学习', '生活'),
+               '-',
+               ELT(((n - 1) % 10) + 1, '背包', '钥匙', '耳机', '水杯', '雨伞', '校园卡', '眼镜', '充电器', 'U盘', '外套'),
+               '-',
+               LPAD(n, 3, '0')
+       ) AS name
+FROM seq_tag;
+
+INSERT IGNORE INTO item_tags (item_id, tag_id)
+SELECT i.id, ((i.id - 1) % 100) + 1
+FROM items i
+UNION DISTINCT
+SELECT i.id, ((i.id + 16) % 100) + 1
+FROM items i
+UNION DISTINCT
+SELECT i.id, ((i.id + 42) % 100) + 1
+FROM items i;
+
+
 
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 /*!40101 SET SQL_MODE=@OLD_SQL_MODE */;

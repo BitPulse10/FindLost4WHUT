@@ -3,12 +3,12 @@ package com.whut.lostandfoundforwhut.service.impl;
 import com.whut.lostandfoundforwhut.common.enums.ResponseCode;
 import com.whut.lostandfoundforwhut.common.exception.AppException;
 import com.whut.lostandfoundforwhut.mapper.ItemMapper;
-import com.whut.lostandfoundforwhut.mapper.TagMapper;
 import com.whut.lostandfoundforwhut.model.entity.Item;
 import com.whut.lostandfoundforwhut.model.vo.ItemDetailVO;
 import com.whut.lostandfoundforwhut.model.vo.UserPublicVO;
 import com.whut.lostandfoundforwhut.service.IImageService;
 import com.whut.lostandfoundforwhut.service.IItemDetailService;
+import com.whut.lostandfoundforwhut.service.ITagService;
 import com.whut.lostandfoundforwhut.service.IUserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -21,7 +21,7 @@ import java.util.List;
 public class ItemDetailServiceImpl implements IItemDetailService {
 
     private final ItemMapper itemMapper;
-    private final TagMapper tagMapper;
+    private final ITagService tagService;
     private final IImageService imageService;
     private final IUserService userService;
 
@@ -36,7 +36,7 @@ public class ItemDetailServiceImpl implements IItemDetailService {
             throw new AppException(ResponseCode.ITEM_NOT_FOUND.getCode(), ResponseCode.ITEM_NOT_FOUND.getInfo());
         }
 
-        List<String> tags = tagMapper.selectNamesByItemId(itemId);
+        List<String> tags = tagService.getTagNamesByItemId(itemId);
         if (tags == null) {
             tags = new ArrayList<>();
         }
