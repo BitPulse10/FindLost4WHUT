@@ -1,6 +1,7 @@
 package com.whut.lostandfoundforwhut.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.whut.lostandfoundforwhut.common.enums.ResponseCode;
 import com.whut.lostandfoundforwhut.common.enums.item.ItemStatus;
@@ -33,6 +34,7 @@ import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -150,7 +152,7 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
             }
 
             // 清理相关的Redis缓存
-            clearSimilarSearchCache(existingItem.getId());
+            clearSimilarSearchCache();
         }
 
         // 更新数据库
@@ -256,7 +258,7 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
         }
 
         // 创建MyBatis-Plus分页对象
-        com.baomidou.mybatisplus.extension.plugins.pagination.Page<Item> page = new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>(
+        Page<Item> page = new Page<>(
                 itemFilterDTO.getPageNo(), itemFilterDTO.getPageSize());
 
         LambdaQueryWrapper<Item> queryWrapper = new LambdaQueryWrapper<>();
@@ -308,23 +310,19 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
             }
         }
 
+        Integer type = itemFilterDTO.getType();
+        Integer status = itemFilterDTO.getStatus();
+        LocalDateTime startTime = itemFilterDTO.getStartTime();
+        LocalDateTime endTime = itemFilterDTO.getEndTime();
         // 类型筛选
-        if (itemFilterDTO.getType() != null) {
-            queryWrapper.eq(Item::getType, itemFilterDTO.getType());
-        }
+        queryWrapper.eq(type != null, Item::getType, type);
 
         // 状态筛选
-        if (itemFilterDTO.getStatus() != null) {
-            queryWrapper.eq(Item::getStatus, itemFilterDTO.getStatus());
-        }
+        queryWrapper.eq(status != null, Item::getStatus, status);
 
         // 时间段筛选
-        if (itemFilterDTO.getStartTime() != null) {
-            queryWrapper.ge(Item::getCreatedAt, itemFilterDTO.getStartTime());
-        }
-        if (itemFilterDTO.getEndTime() != null) {
-            queryWrapper.le(Item::getCreatedAt, itemFilterDTO.getEndTime());
-        }
+        queryWrapper.ge(startTime != null, Item::getCreatedAt, startTime);
+        queryWrapper.le(endTime != null, Item::getCreatedAt, endTime);
 
         // 标签筛选
         if (itemFilterDTO.getTags() != null && !itemFilterDTO.getTags().isEmpty()) {
@@ -397,8 +395,8 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
                     ResponseCode.ITEM_STATUS_INVALID.getInfo());
         }
 
-        // 更新物品状态为关闭而不是物理删除
-        existingItem.setStatus(ItemStatus.CLOSED.getCode());
+        // 逻辑删除
+        existingItem.setIsDeleted(1);
         int rows = itemMapper.updateById(existingItem);
 
         // 从向量数据库中删除物品描述
@@ -491,11 +489,11 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
     }
 
     /**
-     * 清理与指定物品相关的相似搜索缓存
+     * 清理相似搜索缓存
      * 
      * @param itemId 物品ID
      */
-    private void clearSimilarSearchCache(Long itemId) {
+    private void clearSimilarSearchCache() {
         try {
             Set<String> keysToDelete = new HashSet<>();
             ScanOptions options = ScanOptions.scanOptions()
@@ -512,13 +510,13 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
 
             if (!keysToDelete.isEmpty()) {
                 Long deletedCount = redisTemplate.delete(keysToDelete);
-                log.info("已清理{}个相似搜索缓存，涉及物品ID：{}", deletedCount, itemId);
+                log.info("已清理{}个相似搜索缓存", deletedCount);
             } else {
-                log.info("未找到需要清理的相似搜索缓存，物品ID：{}", itemId);
+                log.info("未找到需要清理的相似搜索缓存");
             }
 
         } catch (Exception e) {
-            log.warn("清理相似搜索缓存时出现异常，物品ID：{}", itemId, e);
+            log.warn("清理相似搜索缓存时出现异常", e);
         }
     }
 }
