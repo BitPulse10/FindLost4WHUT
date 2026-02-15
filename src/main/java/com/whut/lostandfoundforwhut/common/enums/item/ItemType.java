@@ -14,8 +14,21 @@ import lombok.NoArgsConstructor;
 @Getter
 public enum ItemType {
     LOST(0, "挂失"),
-    FOUND(1, "招领");
+    FOUND(1, "招领"),
+    CARD(2, "卡证");
 
     private Integer code;
     private String desc;
+
+    public static boolean isValid(Integer code) {
+        if (code == null) {
+            return false;
+        }
+        for (ItemType itemType : values()) {
+            if (itemType.code.equals(code)) {
+                return true;
+            }
+        }
+        return false;
+    }
 }

@@ -16,7 +16,7 @@ import java.util.List;
 @AllArgsConstructor
 @NoArgsConstructor
 public class ItemDTO {
-    private Integer type; // 0-挂失，1-招领
+    private Integer type; // 0-挂失，1-招领，2-卡证
     private LocalDateTime eventTime;
     private String eventPlace;
     private Integer status; // 0-有效，1-结束

@@ -59,4 +59,16 @@ public interface IItemService extends IService<Item> {
      * @return 相似的物品列表
      */
     List<Item> searchSimilarItems(String query, List<Long> imageIds, int maxResults);
+
+    /**
+     * 查询当前用户发布的物品，支持按类型筛选
+     *
+     * @param userId   当前用户ID
+     * @param pageNo   页码
+     * @param pageSize 每页数量
+     * @param type     物品类型（可空）
+     * @param keyword  关键词（可空，匹配描述和地点）
+     * @return 分页结果
+     */
+    PageResultVO<Item> listMyItems(Long userId, Integer pageNo, Integer pageSize, Integer type, String keyword);
 }

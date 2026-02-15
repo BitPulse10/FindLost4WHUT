@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.whut.lostandfoundforwhut.common.enums.ResponseCode;
 import com.whut.lostandfoundforwhut.common.enums.item.ItemStatus;
+import com.whut.lostandfoundforwhut.common.enums.item.ItemType;
 import com.whut.lostandfoundforwhut.common.exception.AppException;
 import com.whut.lostandfoundforwhut.mapper.ItemImageMapper;
 import com.whut.lostandfoundforwhut.mapper.ItemMapper;
@@ -32,11 +33,11 @@ import org.springframework.data.redis.core.Cursor;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -55,6 +56,9 @@ import com.whut.lostandfoundforwhut.mapper.ImageMapper;
 @RequiredArgsConstructor
 @Slf4j
 public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements IItemService {
+    private static final String PRIVATE_TAG_NAMESPACE = "__sys_priv__:";
+    private static final String PRIVATE_NO_PREFIX = "__sys_priv__:no:";
+    private static final List<String> PRIVATE_NO_LEGACY_KEYS = List.of("card_no", "id_no", "student_no", "unique_no");
 
     private final ItemMapper itemMapper;
     private final UserMapper userMapper;
@@ -75,6 +79,7 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
         if (user == null) {
             throw new AppException(ResponseCode.USER_NOT_FOUND.getCode(), ResponseCode.USER_NOT_FOUND.getInfo());
         }
+        validateItemTypeRequired(itemDTO.getType());
 
         // 创建物品
         Item item = Item.builder()
@@ -167,6 +172,7 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
      */
     private void updateItemFields(Item existingItem, ItemDTO itemDTO) {
         if (itemDTO.getType() != null) {
+            validateItemTypeOptional(itemDTO.getType());
             existingItem.setType(itemDTO.getType());
         }
         if (itemDTO.getEventTime() != null) {
@@ -327,7 +333,7 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
         // 标签筛选
         if (itemFilterDTO.getTags() != null && !itemFilterDTO.getTags().isEmpty()) {
             List<Tag> tags = tagMapper.selectList(
-                    new LambdaQueryWrapper<Tag>().in(Tag::getName, itemFilterDTO.getTags()));
+                    new LambdaQueryWrapper<Tag>().in(Tag::getName, requestedTags));
 
             if (!tags.isEmpty()) {
                 List<Long> tagIds = tags.stream()
@@ -349,6 +355,7 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
             } else {
                 queryWrapper.eq(Item::getId, -1L);
             }
+            }
         }
 
         // 按创建时间倒序排列
@@ -368,6 +375,9 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
             List<ItemTagNameDTO> mappings = tagMapper.selectNamesByItemIds(itemIds);
             Map<Long, List<String>> tagMap = new HashMap<>();
             for (ItemTagNameDTO mapping : mappings) {
+                if (mapping.getName() != null && mapping.getName().startsWith(PRIVATE_TAG_NAMESPACE)) {
+                    continue;
+                }
                 tagMap.computeIfAbsent(mapping.getItemId(), key -> new ArrayList<>())
                         .add(mapping.getName());
             }
@@ -378,6 +388,38 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
         }
 
         return PageUtils.toPageResult(page);
+    }
+
+    private void validateItemTypeRequired(Integer type) {
+        if (type == null || !ItemType.isValid(type)) {
+            throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(), "物品类型非法，仅支持 0-挂失，1-招领，2-卡证");
+        }
+    }
+
+    private void validateItemTypeOptional(Integer type) {
+        if (type != null && !ItemType.isValid(type)) {
+            throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(), "物品类型非法，仅支持 0-挂失，1-招领，2-卡证");
+        }
+    }
+
+    private List<String> expandPrivateNoAliases(List<String> tags) {
+        if (tags == null || tags.isEmpty()) {
+            return new ArrayList<>();
+        }
+        LinkedHashSet<String> expanded = new LinkedHashSet<>(tags);
+        for (String tag : tags) {
+            if (tag == null || !tag.startsWith(PRIVATE_NO_PREFIX)) {
+                continue;
+            }
+            String hash = tag.substring(PRIVATE_NO_PREFIX.length());
+            if (hash.isEmpty()) {
+                continue;
+            }
+            for (String key : PRIVATE_NO_LEGACY_KEYS) {
+                expanded.add(PRIVATE_TAG_NAMESPACE + key + ":" + hash);
+            }
+        }
+        return new ArrayList<>(expanded);
     }
 
     @Override
