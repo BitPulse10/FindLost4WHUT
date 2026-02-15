@@ -50,15 +50,6 @@ public interface IItemService extends IService<Item> {
      */
     boolean takeDownItem(Long itemId, Long userId);
 
-    /***
-     * 根据状态筛选物品
-     * 
-     * @param itemIds 物品ID列表
-     * @param status  状态
-     * @return 符合状态的物品列表
-     */
-    List<Item> filterItemsByStatus(List<Long> itemIds, String status);
-
     /**
      * 搜索相似物品
      *

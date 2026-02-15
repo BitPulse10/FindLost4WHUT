@@ -1,6 +1,7 @@
 package com.whut.lostandfoundforwhut.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.whut.lostandfoundforwhut.common.enums.ResponseCode;
 import com.whut.lostandfoundforwhut.common.enums.item.ItemStatus;
@@ -14,6 +15,7 @@ import com.whut.lostandfoundforwhut.mapper.UserMapper;
 import com.whut.lostandfoundforwhut.model.dto.ItemDTO;
 import com.whut.lostandfoundforwhut.model.dto.ItemFilterDTO;
 import com.whut.lostandfoundforwhut.model.dto.ItemTagNameDTO;
+import com.whut.lostandfoundforwhut.model.dto.SearchDTO;
 import com.whut.lostandfoundforwhut.model.entity.Item;
 import com.whut.lostandfoundforwhut.model.entity.ItemTag;
 import com.whut.lostandfoundforwhut.model.entity.Tag;
@@ -25,18 +27,23 @@ import com.whut.lostandfoundforwhut.service.IVectorService;
 import com.whut.lostandfoundforwhut.common.utils.page.PageUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.Cursor;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import com.whut.lostandfoundforwhut.mapper.ImageMapper;
 
@@ -61,6 +68,9 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
     private final ImageMapper imageMapper;
     private final ITagService tagService;
     private final IVectorService vectorService;
+
+    @Autowired
+    private RedisTemplate<String, String> redisTemplate;
 
     @Override
     @Transactional
@@ -128,7 +138,7 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
         String newDescription = itemDTO.getDescription();
         List<Long> newImageIds = itemDTO.getImageIds();
 
-        boolean descriptionChanged = newDescription != null && !newDescription.equals(existingItem.getDescription());
+        boolean descriptionChanged = isDescriptionChanged(existingItem.getDescription(), newDescription);
         boolean imageChanged = detectImageChange(currentImageIds, newImageIds);
         boolean needVectorUpdate = descriptionChanged || imageChanged;
 
@@ -145,6 +155,9 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
                 vectorService.updateVectorDatabase(existingItem, imageUrls);
                 log.info("向量数据库已更新，物品ID：{}", existingItem.getId());
             }
+
+            // 清理相关的Redis缓存
+            clearSimilarSearchCache();
         }
 
         // 更新数据库
@@ -177,17 +190,43 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
     }
 
     /**
+     * 检查描述是否发生变化
+     */
+    private boolean isDescriptionChanged(String oldDescription, String newDescription) {
+        if (oldDescription == null) {
+            return newDescription != null;
+        }
+        return !oldDescription.equals(newDescription);
+    }
+
+    /**
      * 检测图片是否发生变化
      */
     private boolean detectImageChange(List<Long> oldImageIds, List<Long> newImageIds) {
+        // 如果新图片ID列表为null，但原图片ID列表不为空，则视为有变化
         if (newImageIds == null) {
             return oldImageIds != null && !oldImageIds.isEmpty();
         }
+        // 如果原图片ID列表为null，但新图片ID列表不为空，则视为有变化
         if (oldImageIds == null) {
             return !newImageIds.isEmpty();
         }
+
         // 比较两个列表是否相同（不考虑顺序）
-        return !(oldImageIds.size() == newImageIds.size() && oldImageIds.containsAll(newImageIds));
+        // 首先比较大小，不同则直接返回true
+        if (oldImageIds.size() != newImageIds.size()) {
+            return true;
+        }
+
+        // 使用HashSet提高查找效率
+        Set<Long> oldImageSet = new HashSet<>(oldImageIds);
+        for (Long newId : newImageIds) {
+            if (!oldImageSet.contains(newId)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -220,57 +259,79 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
         if (itemFilterDTO.getPageSize() == null || itemFilterDTO.getPageSize() < 1) {
             itemFilterDTO.setPageSize(10);
         }
-        if (itemFilterDTO.getPageSize() > 100) { // 限制每页最大数量
+        if (itemFilterDTO.getPageSize() > 100) {
             itemFilterDTO.setPageSize(100);
         }
 
         // 创建MyBatis-Plus分页对象
-        com.baomidou.mybatisplus.extension.plugins.pagination.Page<Item> page = new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>(
+        Page<Item> page = new Page<>(
                 itemFilterDTO.getPageNo(), itemFilterDTO.getPageSize());
 
         LambdaQueryWrapper<Item> queryWrapper = new LambdaQueryWrapper<>();
 
-        // 类型筛选
-        if (itemFilterDTO.getType() != null) {
-            validateItemTypeOptional(itemFilterDTO.getType());
-            queryWrapper.eq(Item::getType, itemFilterDTO.getType());
+        // 从 Redis 获取相似搜索的物品ID列表
+        if (itemFilterDTO.getSearchDTO() != null) {
+            String redisKey = itemFilterDTO.getSearchDTO().toRedisKey();
+            String cachedIds = redisTemplate.opsForValue().get(redisKey);
+            List<Long> similarItemIds = new ArrayList<>();
+
+            if (cachedIds != null && !cachedIds.isEmpty()) {
+                similarItemIds = parseItemIds(cachedIds);
+                if (!similarItemIds.isEmpty()) {
+                    log.info("使用Redis缓存的相似搜索结果进行过滤，物品数量：{}", similarItemIds.size());
+                }
+            } else {
+                // 如果 Redis 中没有缓存，执行相似物品查询
+                log.info("Redis中未找到相似搜索缓存，执行相似物品查询，键：{}", redisKey);
+
+                // 执行相似物品搜索
+                List<Item> similarItems = searchSimilarItems(
+                        itemFilterDTO.getSearchDTO().getQuery(),
+                        itemFilterDTO.getSearchDTO().getImageIds(),
+                        itemFilterDTO.getSearchDTO().getMaxResults());
+
+                // 提取物品ID
+                similarItemIds = similarItems.stream()
+                        .map(Item::getId)
+                        .collect(Collectors.toList());
+
+                log.info("执行相似物品查询完成，获取到{}个相似物品", similarItemIds.size());
+
+                // 将结果缓存到Redis
+                if (!similarItemIds.isEmpty()) {
+                    String idsJson = similarItemIds.stream()
+                            .map(String::valueOf)
+                            .collect(Collectors.joining(","));
+                    redisTemplate.opsForValue().set(redisKey, idsJson, 1, TimeUnit.HOURS);
+                    log.info("相似物品ID已缓存到Redis，键：{}，数量：{}", redisKey, similarItemIds.size());
+                }
+            }
+
+            // 应用相似物品ID过滤条件
+            if (!similarItemIds.isEmpty()) {
+                queryWrapper.in(Item::getId, similarItemIds);
+            } else {
+                // 如果没有相似物品，返回空结果
+                queryWrapper.eq(Item::getId, -1L);
+            }
         }
+
+        Integer type = itemFilterDTO.getType();
+        Integer status = itemFilterDTO.getStatus();
+        LocalDateTime startTime = itemFilterDTO.getStartTime();
+        LocalDateTime endTime = itemFilterDTO.getEndTime();
+        // 类型筛选
+        queryWrapper.eq(type != null, Item::getType, type);
 
         // 状态筛选
-        if (itemFilterDTO.getStatus() != null) {
-            queryWrapper.eq(Item::getStatus, itemFilterDTO.getStatus());
-        }
+        queryWrapper.eq(status != null, Item::getStatus, status);
 
         // 时间段筛选
-        if (itemFilterDTO.getStartTime() != null) {
-            queryWrapper.ge(Item::getCreatedAt, itemFilterDTO.getStartTime());
-        }
-        if (itemFilterDTO.getEndTime() != null) {
-            queryWrapper.le(Item::getCreatedAt, itemFilterDTO.getEndTime());
-        }
+        queryWrapper.ge(startTime != null, Item::getCreatedAt, startTime);
+        queryWrapper.le(endTime != null, Item::getCreatedAt, endTime);
 
         // 标签筛选
         if (itemFilterDTO.getTags() != null && !itemFilterDTO.getTags().isEmpty()) {
-            List<String> rawRequestedTags = itemFilterDTO.getTags().stream()
-                    .filter(Objects::nonNull)
-                    .map(String::trim)
-                    .filter(tag -> !tag.isEmpty())
-                    .distinct()
-                    .collect(Collectors.toList());
-            List<String> requestedTags = new ArrayList<>(new LinkedHashSet<>(
-                    tagService.parseTagText(
-                            rawRequestedTags.stream()
-                                    .map(tag -> "#" + tag)
-                                    .collect(Collectors.joining("", "", "#"))
-                    )
-            ));
-            requestedTags = expandPrivateNoAliases(requestedTags);
-            boolean preciseTagMatch = Boolean.TRUE.equals(itemFilterDTO.getPreciseTagMatch());
-
-            if (requestedTags.isEmpty()) {
-                queryWrapper.eq(Item::getId, -1L); // 标签请求为空，直接返回空结果
-            } else {
-            // 先查找匹配的标签ID
             List<Tag> tags = tagMapper.selectList(
                     new LambdaQueryWrapper<Tag>().in(Tag::getName, requestedTags));
 
@@ -279,43 +340,20 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
                         .map(Tag::getId)
                         .collect(Collectors.toList());
 
-                // 精确筛选要求所有标签都存在，否则直接返回空结果
-                if (preciseTagMatch && tagIds.size() < requestedTags.size()) {
-                    queryWrapper.eq(Item::getId, -1L); // 一个不可能存在的ID
+                List<Long> itemIds = itemTagMapper.selectList(
+                        new LambdaQueryWrapper<ItemTag>().in(ItemTag::getTagId, tagIds))
+                        .stream()
+                        .map(ItemTag::getItemId)
+                        .distinct()
+                        .collect(Collectors.toList());
+
+                if (!itemIds.isEmpty()) {
+                    queryWrapper.in(Item::getId, itemIds);
                 } else {
-
-                // 然后查找这些标签对应的物品ID
-                    List<ItemTag> itemTagRelations = itemTagMapper.selectList(
-                            new LambdaQueryWrapper<ItemTag>().in(ItemTag::getTagId, tagIds));
-                    List<Long> itemIds;
-                    if (preciseTagMatch) {
-                        Map<Long, Set<Long>> matchedTagIdsByItem = new HashMap<>();
-                        for (ItemTag relation : itemTagRelations) {
-                            matchedTagIdsByItem
-                                    .computeIfAbsent(relation.getItemId(), key -> new HashSet<>())
-                                    .add(relation.getTagId());
-                        }
-                        itemIds = matchedTagIdsByItem.entrySet().stream()
-                                .filter(entry -> entry.getValue().size() == tagIds.size())
-                                .map(Map.Entry::getKey)
-                                .collect(Collectors.toList());
-                    } else {
-                        itemIds = itemTagRelations.stream()
-                                .map(ItemTag::getItemId)
-                                .distinct()
-                                .collect(Collectors.toList());
-                    }
-
-                    if (!itemIds.isEmpty()) {
-                        queryWrapper.in(Item::getId, itemIds);
-                    } else {
-                        // 如果没有找到匹配标签的物品，则返回空结果
-                        queryWrapper.eq(Item::getId, -1L); // 一个不可能存在的ID
-                    }
+                    queryWrapper.eq(Item::getId, -1L);
                 }
             } else {
-                // 如果没有找到匹配的标签，则返回空结果
-                queryWrapper.eq(Item::getId, -1L); // 一个不可能存在的ID
+                queryWrapper.eq(Item::getId, -1L);
             }
             }
         }
@@ -326,13 +364,14 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
         // 执行查询
         itemMapper.selectPage(page, queryWrapper);
 
-        // 封装分页结果
+        // 封装分页结果（填充标签）
         List<Item> records = page.getRecords();
         if (records != null && !records.isEmpty()) {
             List<Long> itemIds = records.stream()
                     .map(Item::getId)
                     .distinct()
                     .toList();
+
             List<ItemTagNameDTO> mappings = tagMapper.selectNamesByItemIds(itemIds);
             Map<Long, List<String>> tagMap = new HashMap<>();
             for (ItemTagNameDTO mapping : mappings) {
@@ -342,10 +381,12 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
                 tagMap.computeIfAbsent(mapping.getItemId(), key -> new ArrayList<>())
                         .add(mapping.getName());
             }
+
             for (Item item : records) {
                 item.setTags(tagMap.getOrDefault(item.getId(), new ArrayList<>()));
             }
         }
+
         return PageUtils.toPageResult(page);
     }
 
@@ -396,8 +437,8 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
                     ResponseCode.ITEM_STATUS_INVALID.getInfo());
         }
 
-        // 更新物品状态为关闭而不是物理删除
-        existingItem.setStatus(ItemStatus.CLOSED.getCode());
+        // 逻辑删除
+        existingItem.setIsDeleted(1);
         int rows = itemMapper.updateById(existingItem);
 
         // 从向量数据库中删除物品描述
@@ -407,50 +448,55 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
     }
 
     @Override
-    public List<Item> filterItemsByStatus(List<Long> itemIds, String status) {
-        if (itemIds == null || itemIds.isEmpty()) {
-            return new ArrayList<>();
-        }
-
-        // 构建查询条件，只查询指定ID列表中符合状态的物品
-        LambdaQueryWrapper<Item> queryWrapper = new LambdaQueryWrapper<>();
-        queryWrapper.in(Item::getId, itemIds)
-                .eq(Item::getStatus, status);
-
-        // 执行查询
-        List<Item> filteredItems = itemMapper.selectList(queryWrapper);
-
-        log.info("根据状态筛选物品完成，输入ID数量：{}，筛选结果数量：{}，状态：{}",
-                itemIds.size(), filteredItems.size(), status);
-
-        return filteredItems;
-    }
-
-    @Override
     public List<Item> searchSimilarItems(String query, List<Long> imageIds, int maxResults) {
         try {
-            // 处理查询文本为空的情况
-            if (query == null) {
-                query = "";
+            // 创建 DTO
+            SearchDTO searchDTO = new SearchDTO(query, imageIds, maxResults);
+            String redisKey = searchDTO.toRedisKey();
+
+            // 尝试从 Redis 获取缓存
+            String cachedIds = redisTemplate.opsForValue().get(redisKey);
+            List<Long> itemIds;
+
+            if (cachedIds != null) {
+                // 缓存命中
+                log.info("从 Redis 缓存获取相似物品ID，键：{}", redisKey);
+                itemIds = parseItemIds(cachedIds);
+            } else {
+                // 缓存未命中，执行向量搜索
+                log.info("Redis 缓存未命中，执行向量搜索，键：{}", redisKey);
+
+                // 处理查询文本为空的情况
+                if (query == null) {
+                    query = "";
+                }
+
+                // 获取图片Url列表
+                List<String> imageUrls = new ArrayList<>();
+                if (imageIds != null && !imageIds.isEmpty()) {
+                    imageUrls = imageMapper.selectUrlsByIds(imageIds);
+                }
+
+                // 使用向量数据库搜索相似的物品ID
+                List<String> similarItemIds = vectorService.searchInCollection(query, imageUrls, maxResults);
+                log.info("向量服务返回的ID列表: {}", similarItemIds);
+                log.info("向量服务返回ID数量: {}", similarItemIds.size());
+
+                // 将向量数据库返回的ID转换为Long类型的物品ID
+                itemIds = similarItemIds.stream()
+                        .filter(id -> id.startsWith("item_"))
+                        .map(id -> Long.parseLong(id.substring(5)))
+                        .collect(Collectors.toList());
+
+                // 存入 Redis，设置过期时间（例如 1 小时）
+                if (!itemIds.isEmpty()) {
+                    String idsJson = itemIds.stream()
+                            .map(String::valueOf)
+                            .collect(Collectors.joining(","));
+                    redisTemplate.opsForValue().set(redisKey, idsJson, 1, TimeUnit.HOURS);
+                    log.info("相似物品ID已缓存到 Redis，键：{}，数量：{}", redisKey, itemIds.size());
+                }
             }
-
-            // 获取图片Url列表
-            List<String> imageUrls = new ArrayList<>();
-            if (imageIds != null && !imageIds.isEmpty()) {
-                imageUrls = imageMapper.selectUrlsByIds(imageIds);
-            }
-
-            // 使用向量数据库搜索相似的物品ID
-            List<String> similarItemIds = vectorService.searchInCollection(query, imageUrls, maxResults);
-
-            log.info("向量服务返回的ID列表: {}", similarItemIds);
-            log.info("向量服务返回ID数量: {}", similarItemIds.size());
-
-            // 将向量数据库返回的ID转换为Long类型的物品ID
-            List<Long> itemIds = similarItemIds.stream()
-                    .filter(id -> id.startsWith("item_")) // 确保是物品ID格式
-                    .map(id -> Long.parseLong(id.substring(5))) // 移除 "item_" 前缀并转换为Long
-                    .collect(Collectors.toList());
 
             if (itemIds.isEmpty()) {
                 return new ArrayList<>();
@@ -459,12 +505,10 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
             // 根据ID列表查询物品信息
             LambdaQueryWrapper<Item> queryWrapper = new LambdaQueryWrapper<>();
             queryWrapper.in(Item::getId, itemIds)
-                    .orderByDesc(Item::getCreatedAt); // 按创建时间倒序排列
+                    .orderByDesc(Item::getCreatedAt);
 
             List<Item> items = itemMapper.selectList(queryWrapper);
-
             log.info("搜索相似物品完成，查询：{}，返回结果数量：{}", query, items.size());
-
             return items;
         } catch (Exception e) {
             log.error("搜索相似物品失败，查询：{}", query, e);
@@ -472,52 +516,49 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
         }
     }
 
-    @Override
-    public PageResultVO<Item> listMyItems(Long userId, Integer pageNo, Integer pageSize, Integer type, String keyword) {
-        if (userId == null) {
-            throw new AppException(ResponseCode.NOT_LOGIN.getCode(), ResponseCode.NOT_LOGIN.getInfo());
+    /**
+     * 解析 Redis 中存储的 ID 字符串
+     */
+    private List<Long> parseItemIds(String idsStr) {
+        if (idsStr == null || idsStr.isEmpty()) {
+            return new ArrayList<>();
         }
-        validateItemTypeOptional(type);
-        int safePageNo = (pageNo == null || pageNo < 1) ? 1 : pageNo;
-        int safePageSize = (pageSize == null || pageSize < 1) ? 10 : Math.min(pageSize, 100);
+        return Arrays.stream(idsStr.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .map(Long::parseLong)
+                .collect(Collectors.toList());
+    }
 
-        com.baomidou.mybatisplus.extension.plugins.pagination.Page<Item> page =
-                new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>(safePageNo, safePageSize);
-        LambdaQueryWrapper<Item> queryWrapper = new LambdaQueryWrapper<>();
-        queryWrapper.eq(Item::getUserId, userId);
-        if (type != null) {
-            queryWrapper.eq(Item::getType, type);
-        }
-        if (StringUtils.hasText(keyword)) {
-            String trimmedKeyword = keyword.trim();
-            queryWrapper.and(wrapper -> wrapper
-                    .like(Item::getDescription, trimmedKeyword)
-                    .or()
-                    .like(Item::getEventPlace, trimmedKeyword));
-        }
-        queryWrapper.orderByDesc(Item::getCreatedAt);
+    /**
+     * 清理相似搜索缓存
+     * 
+     * @param itemId 物品ID
+     */
+    private void clearSimilarSearchCache() {
+        try {
+            Set<String> keysToDelete = new HashSet<>();
+            ScanOptions options = ScanOptions.scanOptions()
+                    .match("similar:search:*")
+                    .count(100)
+                    .build();
 
-        itemMapper.selectPage(page, queryWrapper);
-
-        List<Item> records = page.getRecords();
-        if (records != null && !records.isEmpty()) {
-            List<Long> itemIds = records.stream()
-                    .map(Item::getId)
-                    .distinct()
-                    .toList();
-            List<ItemTagNameDTO> mappings = tagMapper.selectNamesByItemIds(itemIds);
-            Map<Long, List<String>> tagMap = new HashMap<>();
-            for (ItemTagNameDTO mapping : mappings) {
-                if (mapping.getName() != null && mapping.getName().startsWith(PRIVATE_TAG_NAMESPACE)) {
-                    continue;
+            // 使用SCAN命令遍历匹配的键
+            try (Cursor<String> cursor = redisTemplate.scan(options)) {
+                while (cursor.hasNext()) {
+                    keysToDelete.add(cursor.next());
                 }
-                tagMap.computeIfAbsent(mapping.getItemId(), key -> new ArrayList<>())
-                        .add(mapping.getName());
             }
-            for (Item item : records) {
-                item.setTags(tagMap.getOrDefault(item.getId(), new ArrayList<>()));
+
+            if (!keysToDelete.isEmpty()) {
+                Long deletedCount = redisTemplate.delete(keysToDelete);
+                log.info("已清理{}个相似搜索缓存", deletedCount);
+            } else {
+                log.info("未找到需要清理的相似搜索缓存");
             }
+
+        } catch (Exception e) {
+            log.warn("清理相似搜索缓存时出现异常", e);
         }
-        return PageUtils.toPageResult(page);
     }
 }

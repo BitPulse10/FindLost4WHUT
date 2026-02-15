@@ -35,4 +35,6 @@ public class ItemFilterDTO {
     // 时间段筛选
     private LocalDateTime startTime;
     private LocalDateTime endTime;
+
+    private SearchDTO searchDTO;
 }
