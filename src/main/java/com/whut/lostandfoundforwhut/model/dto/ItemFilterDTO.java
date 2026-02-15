@@ -23,11 +23,14 @@ public class ItemFilterDTO {
     private Integer pageSize = 10;
 
     // 原有过滤参数
-    private Integer type;
+    private Integer type; // 0-挂失，1-招领，2-卡证
     private Integer status;
 
     // 标签列表
     private List<String> tags;
+
+    // 标签筛选模式：false=广泛筛选（命中任一标签），true=精确筛选（必须命中全部标签）
+    private Boolean preciseTagMatch = false;
 
     // 时间段筛选
     private LocalDateTime startTime;

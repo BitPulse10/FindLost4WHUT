@@ -19,6 +19,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -38,7 +41,12 @@ import java.util.stream.Collectors;
 public class TagServiceImpl extends ServiceImpl<TagMapper, Tag> implements ITagService {
 
     private static final int MAX_TAG_LENGTH = 20;
+    private static final int MAX_PRIVATE_KEY_LENGTH = 20;
     private static final int MAX_PAGE_SIZE = 100;
+    private static final int PRIVATE_TAG_HASH_LENGTH = 16;
+    private static final String PRIVATE_TAG_INPUT_PREFIX = "priv:";
+    private static final String PRIVATE_TAG_NAMESPACE = "__sys_priv__:";
+    private static final String PRIVATE_NO_KEY = "no";
     private static final Duration ITEM_TAGS_CACHE_TTL = Duration.ofMinutes(30);
     private static final Duration TAG_LIST_CACHE_TTL = Duration.ofMinutes(5);
 
@@ -64,6 +72,7 @@ public class TagServiceImpl extends ServiceImpl<TagMapper, Tag> implements ITagS
 
         Page<Tag> page = new Page<>(resolvedPageNo, resolvedPageSize);
         LambdaQueryWrapper<Tag> queryWrapper = new LambdaQueryWrapper<>();
+        queryWrapper.notLikeRight(Tag::getName, PRIVATE_TAG_NAMESPACE);
         if (StringUtils.hasText(keyword)) {
             queryWrapper.like(Tag::getName, keyword.trim());
         }
@@ -88,7 +97,15 @@ public class TagServiceImpl extends ServiceImpl<TagMapper, Tag> implements ITagS
                 continue;
             }
             String value = part.trim();
-            if (value.isEmpty() || value.length() > MAX_TAG_LENGTH) {
+            if (value.isEmpty()) {
+                continue;
+            }
+            String privateTag = normalizePrivateTag(value);
+            if (privateTag != null) {
+                normalized.add(privateTag);
+                continue;
+            }
+            if (value.length() > MAX_TAG_LENGTH) {
                 continue;
             }
             normalized.add(value.toLowerCase(Locale.ROOT));
@@ -161,12 +178,74 @@ public class TagServiceImpl extends ServiceImpl<TagMapper, Tag> implements ITagS
         if (cachedTags instanceof List<?> cachedList) {
             @SuppressWarnings("unchecked")
             List<String> result = (List<String>) cachedList;
-            return result;
+            return filterVisibleTags(result);
         }
 
-        List<String> tagNames = tagMapper.selectNamesByItemId(itemId);
+        List<String> tagNames = filterVisibleTags(tagMapper.selectNamesByItemId(itemId));
         redisService.setValue(cacheKey, tagNames, ITEM_TAGS_CACHE_TTL);
         return tagNames;
+    }
+
+    private String normalizePrivateTag(String rawTag) {
+        String normalized = rawTag.trim().toLowerCase(Locale.ROOT);
+        if (!normalized.startsWith(PRIVATE_TAG_INPUT_PREFIX)) {
+            return null;
+        }
+        String body = normalized.substring(PRIVATE_TAG_INPUT_PREFIX.length()).trim();
+        if (!StringUtils.hasText(body)) {
+            return null;
+        }
+
+        String[] keyValue;
+        if (body.contains("=")) {
+            keyValue = body.split("=", 2);
+        } else {
+            keyValue = body.split(":", 2);
+        }
+        if (keyValue.length != 2) {
+            return null;
+        }
+        String key = keyValue[0].replaceAll("[^a-z0-9_]", "").trim();
+        String value = keyValue[1].trim().toLowerCase(Locale.ROOT);
+        if (!StringUtils.hasText(key) || !StringUtils.hasText(value)) {
+            return null;
+        }
+        if ("card_no".equals(key) || "id_no".equals(key) || "student_no".equals(key) || "unique_no".equals(key)) {
+            key = PRIVATE_NO_KEY;
+        }
+        if (key.length() > MAX_PRIVATE_KEY_LENGTH) {
+            key = key.substring(0, MAX_PRIVATE_KEY_LENGTH);
+        }
+        String digest = sha256(value);
+        if (digest.length() > PRIVATE_TAG_HASH_LENGTH) {
+            digest = digest.substring(0, PRIVATE_TAG_HASH_LENGTH);
+        }
+        return PRIVATE_TAG_NAMESPACE + key + ":" + digest;
+    }
+
+    private List<String> filterVisibleTags(List<String> names) {
+        if (names == null || names.isEmpty()) {
+            return new ArrayList<>();
+        }
+        return names.stream()
+                .filter(StringUtils::hasText)
+                .map(String::trim)
+                .filter(name -> !name.startsWith(PRIVATE_TAG_NAMESPACE))
+                .toList();
+    }
+
+    private String sha256(String value) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] bytes = digest.digest(value.getBytes(StandardCharsets.UTF_8));
+            StringBuilder hex = new StringBuilder(bytes.length * 2);
+            for (byte b : bytes) {
+                hex.append(String.format("%02x", b));
+            }
+            return hex.toString();
+        } catch (NoSuchAlgorithmException e) {
+            throw new AppException(ResponseCode.UN_ERROR.getCode(), "私密标签摘要失败");
+        }
     }
 
     private String buildItemTagsKey(Long itemId) {

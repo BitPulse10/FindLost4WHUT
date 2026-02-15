@@ -13,6 +13,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.regex.Pattern;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -53,6 +54,30 @@ public class TagServiceImplTest {
     }
 
     @Test
+    void parseTagText_privateCardTagShouldHashAndHideRawValue() {
+        List<String> result = service.parseTagText("#priv:no=420106200001011234#普通标签#");
+        Assertions.assertEquals(2, result.size());
+        Assertions.assertTrue(result.contains("普通标签"));
+        String privateTag = result.stream().filter(v -> v.startsWith("__sys_priv__:no:")).findFirst().orElse("");
+        Assertions.assertTrue(Pattern.matches("^__sys_priv__:no:[a-f0-9]{16}$", privateTag));
+        Assertions.assertFalse(privateTag.contains("420106200001011234"));
+    }
+
+    @Test
+    void parseTagText_privateTagShouldSupportColonStyle() {
+        List<String> result = service.parseTagText("#priv:no:2023001234#");
+        Assertions.assertEquals(1, result.size());
+        Assertions.assertTrue(Pattern.matches("^__sys_priv__:no:[a-f0-9]{16}$", result.get(0)));
+    }
+
+    @Test
+    void parseTagText_legacyPrivateKeyShouldNormalizeToNo() {
+        List<String> result = service.parseTagText("#priv:card_no=420106200001011234#");
+        Assertions.assertEquals(1, result.size());
+        Assertions.assertTrue(Pattern.matches("^__sys_priv__:no:[a-f0-9]{16}$", result.get(0)));
+    }
+
+    @Test
     void getTagNamesByItemId_returnsFromCache() {
         Long itemId = 101L;
         String cacheKey = Constants.RedisKey.ITEM_TAGS + itemId;
@@ -76,5 +101,28 @@ public class TagServiceImplTest {
 
         Assertions.assertEquals(List.of("wallet"), result);
         verify(redisService).setValue(eq(cacheKey), eq(List.of("wallet")), any(Duration.class));
+    }
+
+    @Test
+    void getTagNamesByItemId_shouldFilterPrivateTagsWhenReadingDb() {
+        Long itemId = 303L;
+        when(redisService.getValue(Constants.RedisKey.ITEM_TAGS + itemId)).thenReturn(null);
+        when(tagMapper.selectNamesByItemId(itemId)).thenReturn(List.of("公开标签", "__sys_priv__:card_no:abcdef1234567890"));
+
+        List<String> result = service.getTagNamesByItemId(itemId);
+
+        Assertions.assertEquals(List.of("公开标签"), result);
+    }
+
+    @Test
+    void getTagNamesByItemId_shouldFilterPrivateTagsWhenReadingCache() {
+        Long itemId = 404L;
+        when(redisService.getValue(Constants.RedisKey.ITEM_TAGS + itemId))
+                .thenReturn(List.of("公开标签", "__sys_priv__:student_no:abcdef1234567890"));
+
+        List<String> result = service.getTagNamesByItemId(itemId);
+
+        Assertions.assertEquals(List.of("公开标签"), result);
+        verify(tagMapper, never()).selectNamesByItemId(any());
     }
 }

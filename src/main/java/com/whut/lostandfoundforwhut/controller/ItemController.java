@@ -45,7 +45,7 @@ public class ItemController {
     private final ItemImageMapper itemImageMapper;
 
     @PostMapping("/add-item")
-    @Operation(summary = "添加物品", description = "添加新的挂失或招领物品 ，返回物品ID")
+    @Operation(summary = "添加物品", description = "添加新的挂失/招领/卡证物品，返回物品ID")
     public Result<Item> addItem(@RequestBody ItemDTO itemDTO) {
         try {
             Long userId = userService.getCurrentUserId();
@@ -74,7 +74,7 @@ public class ItemController {
     }
 
     @PostMapping("/add-items")
-    @Operation(summary = "添加物品列表", description = "添加新的挂失或招领物品 ，返回物品ID")
+    @Operation(summary = "添加物品列表", description = "添加新的挂失/招领/卡证物品，返回物品ID")
     public Result<Item> addItems(@RequestBody ItemDTOs itemDTOs) {
         try {
             Long userId = userService.getCurrentUserId();
@@ -175,6 +175,25 @@ public class ItemController {
         }
     }
 
+    @GetMapping("/me")
+    @Operation(summary = "查询我的物品", description = "查询当前登录用户发布的物品，支持按类型、关键词筛选与分页")
+    public Result<PageResultVO<Item>> listMyItems(
+            @Parameter(description = "页码，从1开始") @RequestParam(defaultValue = "1") Integer pageNo,
+            @Parameter(description = "每页数量，最大100") @RequestParam(defaultValue = "20") Integer pageSize,
+            @Parameter(description = "物品类型：0-挂失，1-招领，2-卡证") @RequestParam(required = false) Integer type,
+            @Parameter(description = "关键词（匹配描述和地点）") @RequestParam(required = false) String keyword) {
+        try {
+            Long userId = userService.getCurrentUserId();
+            PageResultVO<Item> result = itemService.listMyItems(userId, pageNo, pageSize, type, keyword);
+            return Result.success(result);
+        } catch (AppException e) {
+            return Result.fail(e.getCode(), e.getInfo());
+        } catch (Exception e) {
+            log.error("查询我的物品失败，pageNo={}, pageSize={}, type={}, keyword={}", pageNo, pageSize, type, keyword, e);
+            return Result.fail(ResponseCode.UN_ERROR.getCode(), "查询我的物品失败：" + e.getMessage());
+        }
+    }
+
     @GetMapping("/{itemId}/detail")
     @Operation(summary = "获取物品详情", description = "返回物品图片、标签、发现时间、发现地点、描述等聚合信息")
     public Result<ItemDetailVO> getItemDetailById(
@@ -190,7 +209,7 @@ public class ItemController {
         }
     }
 
-    @GetMapping("/{ItemId}")
+    @GetMapping("/{ItemId:\\d+}")
     @Operation(summary = "获取物品", description = "通过物品ID获取物品信息")
     public Result<Item> getItemById(
             @Parameter(description = "Item ID", required = true) @PathVariable Long ItemId) {

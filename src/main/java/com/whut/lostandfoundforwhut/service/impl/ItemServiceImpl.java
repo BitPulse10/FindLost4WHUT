@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.whut.lostandfoundforwhut.common.enums.ResponseCode;
 import com.whut.lostandfoundforwhut.common.enums.item.ItemStatus;
+import com.whut.lostandfoundforwhut.common.enums.item.ItemType;
 import com.whut.lostandfoundforwhut.common.exception.AppException;
 import com.whut.lostandfoundforwhut.mapper.ItemImageMapper;
 import com.whut.lostandfoundforwhut.mapper.ItemMapper;
@@ -27,13 +28,18 @@ import com.whut.lostandfoundforwhut.common.utils.page.PageUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
 import com.whut.lostandfoundforwhut.mapper.ImageMapper;
 
@@ -46,6 +52,9 @@ import com.whut.lostandfoundforwhut.mapper.ImageMapper;
 @RequiredArgsConstructor
 @Slf4j
 public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements IItemService {
+    private static final String PRIVATE_TAG_NAMESPACE = "__sys_priv__:";
+    private static final String PRIVATE_NO_PREFIX = "__sys_priv__:no:";
+    private static final List<String> PRIVATE_NO_LEGACY_KEYS = List.of("card_no", "id_no", "student_no", "unique_no");
 
     private final ItemMapper itemMapper;
     private final UserMapper userMapper;
@@ -63,6 +72,7 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
         if (user == null) {
             throw new AppException(ResponseCode.USER_NOT_FOUND.getCode(), ResponseCode.USER_NOT_FOUND.getInfo());
         }
+        validateItemTypeRequired(itemDTO.getType());
 
         // 创建物品
         Item item = Item.builder()
@@ -107,6 +117,7 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
         if (user == null) {
             throw new AppException(ResponseCode.USER_NOT_FOUND.getCode(), ResponseCode.USER_NOT_FOUND.getInfo());
         }
+        validateItemTypeRequired(itemDTOs.getType());
 
         // 创建物品
         Item item = Item.builder()
@@ -198,6 +209,7 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
      */
     private void updateItemFields(Item existingItem, ItemDTO itemDTO) {
         if (itemDTO.getType() != null) {
+            validateItemTypeOptional(itemDTO.getType());
             existingItem.setType(itemDTO.getType());
         }
         if (itemDTO.getEventTime() != null) {
@@ -267,6 +279,7 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
 
         // 类型筛选
         if (itemFilterDTO.getType() != null) {
+            validateItemTypeOptional(itemFilterDTO.getType());
             queryWrapper.eq(Item::getType, itemFilterDTO.getType());
         }
 
@@ -285,31 +298,72 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
 
         // 标签筛选
         if (itemFilterDTO.getTags() != null && !itemFilterDTO.getTags().isEmpty()) {
+            List<String> rawRequestedTags = itemFilterDTO.getTags().stream()
+                    .filter(Objects::nonNull)
+                    .map(String::trim)
+                    .filter(tag -> !tag.isEmpty())
+                    .distinct()
+                    .collect(Collectors.toList());
+            List<String> requestedTags = new ArrayList<>(new LinkedHashSet<>(
+                    tagService.parseTagText(
+                            rawRequestedTags.stream()
+                                    .map(tag -> "#" + tag)
+                                    .collect(Collectors.joining("", "", "#"))
+                    )
+            ));
+            requestedTags = expandPrivateNoAliases(requestedTags);
+            boolean preciseTagMatch = Boolean.TRUE.equals(itemFilterDTO.getPreciseTagMatch());
+
+            if (requestedTags.isEmpty()) {
+                queryWrapper.eq(Item::getId, -1L); // 标签请求为空，直接返回空结果
+            } else {
             // 先查找匹配的标签ID
             List<Tag> tags = tagMapper.selectList(
-                    new LambdaQueryWrapper<Tag>().in(Tag::getName, itemFilterDTO.getTags()));
+                    new LambdaQueryWrapper<Tag>().in(Tag::getName, requestedTags));
 
             if (!tags.isEmpty()) {
                 List<Long> tagIds = tags.stream()
                         .map(Tag::getId)
                         .collect(Collectors.toList());
 
-                // 然后查找这些标签对应的物品ID
-                List<Long> itemIds = itemTagMapper.selectList(
-                        new LambdaQueryWrapper<ItemTag>().in(ItemTag::getTagId, tagIds)).stream()
-                        .map(ItemTag::getItemId)
-                        .distinct()
-                        .collect(Collectors.toList());
-
-                if (!itemIds.isEmpty()) {
-                    queryWrapper.in(Item::getId, itemIds);
-                } else {
-                    // 如果没有找到匹配标签的物品，则返回空结果
+                // 精确筛选要求所有标签都存在，否则直接返回空结果
+                if (preciseTagMatch && tagIds.size() < requestedTags.size()) {
                     queryWrapper.eq(Item::getId, -1L); // 一个不可能存在的ID
+                } else {
+
+                // 然后查找这些标签对应的物品ID
+                    List<ItemTag> itemTagRelations = itemTagMapper.selectList(
+                            new LambdaQueryWrapper<ItemTag>().in(ItemTag::getTagId, tagIds));
+                    List<Long> itemIds;
+                    if (preciseTagMatch) {
+                        Map<Long, Set<Long>> matchedTagIdsByItem = new HashMap<>();
+                        for (ItemTag relation : itemTagRelations) {
+                            matchedTagIdsByItem
+                                    .computeIfAbsent(relation.getItemId(), key -> new HashSet<>())
+                                    .add(relation.getTagId());
+                        }
+                        itemIds = matchedTagIdsByItem.entrySet().stream()
+                                .filter(entry -> entry.getValue().size() == tagIds.size())
+                                .map(Map.Entry::getKey)
+                                .collect(Collectors.toList());
+                    } else {
+                        itemIds = itemTagRelations.stream()
+                                .map(ItemTag::getItemId)
+                                .distinct()
+                                .collect(Collectors.toList());
+                    }
+
+                    if (!itemIds.isEmpty()) {
+                        queryWrapper.in(Item::getId, itemIds);
+                    } else {
+                        // 如果没有找到匹配标签的物品，则返回空结果
+                        queryWrapper.eq(Item::getId, -1L); // 一个不可能存在的ID
+                    }
                 }
             } else {
                 // 如果没有找到匹配的标签，则返回空结果
                 queryWrapper.eq(Item::getId, -1L); // 一个不可能存在的ID
+            }
             }
         }
 
@@ -329,6 +383,9 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
             List<ItemTagNameDTO> mappings = tagMapper.selectNamesByItemIds(itemIds);
             Map<Long, List<String>> tagMap = new HashMap<>();
             for (ItemTagNameDTO mapping : mappings) {
+                if (mapping.getName() != null && mapping.getName().startsWith(PRIVATE_TAG_NAMESPACE)) {
+                    continue;
+                }
                 tagMap.computeIfAbsent(mapping.getItemId(), key -> new ArrayList<>())
                         .add(mapping.getName());
             }
@@ -337,6 +394,38 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
             }
         }
         return PageUtils.toPageResult(page);
+    }
+
+    private void validateItemTypeRequired(Integer type) {
+        if (type == null || !ItemType.isValid(type)) {
+            throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(), "物品类型非法，仅支持 0-挂失，1-招领，2-卡证");
+        }
+    }
+
+    private void validateItemTypeOptional(Integer type) {
+        if (type != null && !ItemType.isValid(type)) {
+            throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(), "物品类型非法，仅支持 0-挂失，1-招领，2-卡证");
+        }
+    }
+
+    private List<String> expandPrivateNoAliases(List<String> tags) {
+        if (tags == null || tags.isEmpty()) {
+            return new ArrayList<>();
+        }
+        LinkedHashSet<String> expanded = new LinkedHashSet<>(tags);
+        for (String tag : tags) {
+            if (tag == null || !tag.startsWith(PRIVATE_NO_PREFIX)) {
+                continue;
+            }
+            String hash = tag.substring(PRIVATE_NO_PREFIX.length());
+            if (hash.isEmpty()) {
+                continue;
+            }
+            for (String key : PRIVATE_NO_LEGACY_KEYS) {
+                expanded.add(PRIVATE_TAG_NAMESPACE + key + ":" + hash);
+            }
+        }
+        return new ArrayList<>(expanded);
     }
 
     @Override
@@ -425,5 +514,54 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
             log.error("搜索相似物品失败，查询：{}", query, e);
             throw new AppException(ResponseCode.UN_ERROR.getCode(), "搜索相似物品失败：" + e.getMessage());
         }
+    }
+
+    @Override
+    public PageResultVO<Item> listMyItems(Long userId, Integer pageNo, Integer pageSize, Integer type, String keyword) {
+        if (userId == null) {
+            throw new AppException(ResponseCode.NOT_LOGIN.getCode(), ResponseCode.NOT_LOGIN.getInfo());
+        }
+        validateItemTypeOptional(type);
+        int safePageNo = (pageNo == null || pageNo < 1) ? 1 : pageNo;
+        int safePageSize = (pageSize == null || pageSize < 1) ? 10 : Math.min(pageSize, 100);
+
+        com.baomidou.mybatisplus.extension.plugins.pagination.Page<Item> page =
+                new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>(safePageNo, safePageSize);
+        LambdaQueryWrapper<Item> queryWrapper = new LambdaQueryWrapper<>();
+        queryWrapper.eq(Item::getUserId, userId);
+        if (type != null) {
+            queryWrapper.eq(Item::getType, type);
+        }
+        if (StringUtils.hasText(keyword)) {
+            String trimmedKeyword = keyword.trim();
+            queryWrapper.and(wrapper -> wrapper
+                    .like(Item::getDescription, trimmedKeyword)
+                    .or()
+                    .like(Item::getEventPlace, trimmedKeyword));
+        }
+        queryWrapper.orderByDesc(Item::getCreatedAt);
+
+        itemMapper.selectPage(page, queryWrapper);
+
+        List<Item> records = page.getRecords();
+        if (records != null && !records.isEmpty()) {
+            List<Long> itemIds = records.stream()
+                    .map(Item::getId)
+                    .distinct()
+                    .toList();
+            List<ItemTagNameDTO> mappings = tagMapper.selectNamesByItemIds(itemIds);
+            Map<Long, List<String>> tagMap = new HashMap<>();
+            for (ItemTagNameDTO mapping : mappings) {
+                if (mapping.getName() != null && mapping.getName().startsWith(PRIVATE_TAG_NAMESPACE)) {
+                    continue;
+                }
+                tagMap.computeIfAbsent(mapping.getItemId(), key -> new ArrayList<>())
+                        .add(mapping.getName());
+            }
+            for (Item item : records) {
+                item.setTags(tagMap.getOrDefault(item.getId(), new ArrayList<>()));
+            }
+        }
+        return PageUtils.toPageResult(page);
     }
 }
