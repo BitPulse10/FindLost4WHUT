@@ -88,9 +88,14 @@ public class VectorServiceImpl implements IVectorService {
      */
     private boolean isVectorExists(String itemId) {
         try {
-            // 使用一个简单的查询来检查是否存在该ID
+            // 优化：先获取集合大小，如果为0则直接返回false
+            if (getCollectionSize() == 0) {
+                return false;
+            }
+
+            // 使用一个简单的查询来检查是否存在该ID，减少查询范围以提升性能
             Embedding dummyEmbedding = Embedding.from(new float[1024]);
-            List<EmbeddingMatch<TextSegment>> results = embeddingStore.findRelevant(dummyEmbedding, 1000);
+            List<EmbeddingMatch<TextSegment>> results = embeddingStore.findRelevant(dummyEmbedding, 10); // 减少查询数量
 
             // 检查返回结果中是否包含指定ID
             return results.stream()
@@ -251,7 +256,6 @@ public class VectorServiceImpl implements IVectorService {
 
             if (response.statusCode() == 200) {
                 String responseBody = response.body().trim();
-                System.out.println("集合统计响应体: " + responseBody);
                 log.info("集合统计响应体: {}", responseBody);
 
                 // 直接解析纯数字格式
@@ -293,16 +297,15 @@ public class VectorServiceImpl implements IVectorService {
                     HttpResponse.BodyHandlers.ofString());
 
             if (response.statusCode() == 200) {
-                System.out.println("集合 " + collectionName + " 删除成功！");
+                log.info("集合 {} 删除成功！", collectionName);
 
                 // 删除集合后重新初始化新的
                 initializeCollection();
             } else {
-                System.err.println("删除失败，状态码：" + response.statusCode() + "，响应：" + response.body());
+                log.error("删除失败，状态码：{}，响应：{}", response.statusCode(), response.body());
             }
         } catch (Exception e) {
-            System.err.println("请求异常：" + e.getMessage());
-            e.printStackTrace();
+            log.error("清空集合时发生异常", e);
         }
     }
 
@@ -363,7 +366,6 @@ public class VectorServiceImpl implements IVectorService {
      * @return 嵌入向量
      */
     public Embedding generateMultimodalEmbedding(String text, List<String> imageUrls) {
-        System.out.println("进入多张处理");
         // 使用HTTP方法处理多张图片
         try {
             Embedding httpResult = generateMultimodalEmbeddingsViaHttp(text, imageUrls);
