@@ -1,5 +1,6 @@
 package com.whut.lostandfoundforwhut.service.impl;
 
+import com.whut.lostandfoundforwhut.common.constant.Constants.RedisKey;
 import com.whut.lostandfoundforwhut.common.enums.ResponseCode;
 import com.whut.lostandfoundforwhut.common.exception.AppException;
 import com.whut.lostandfoundforwhut.common.utils.cos.COS;
@@ -136,7 +137,7 @@ public class ImageServiceImpl extends ServiceImpl<ImageMapper, Image> implements
 
             // 缓存所有图片
             for (Image image : images) {
-                String cacheKey = generateCacheKey(image.getId());
+                String cacheKey = RedisKey.IMAGE_BY_ID + image.getId();
                 redisService.setValue(cacheKey, image);
             }
 
@@ -147,7 +148,7 @@ public class ImageServiceImpl extends ServiceImpl<ImageMapper, Image> implements
             cos.batchDeleteObject(objectKeys);
             // 删除所有图片缓存
             for (Image image : images) {
-                String cacheKey = generateCacheKey(image.getId());
+                String cacheKey = RedisKey.IMAGE_BY_ID + image.getId();
                 if (redisService.isExists(cacheKey)) {
                     redisService.remove(cacheKey);
                 }
@@ -206,7 +207,7 @@ public class ImageServiceImpl extends ServiceImpl<ImageMapper, Image> implements
     @Override
     public String getUrlById(Long imageId) {
         // 从缓存中获取图片URL
-        String cacheKey = generateCacheKey(imageId);
+                String cacheKey = RedisKey.IMAGE_BY_ID + imageId;
         if (redisService.isExists(cacheKey)) {
             // 键存在
             Image image = (Image) redisService.getValue(cacheKey);
@@ -274,7 +275,7 @@ public class ImageServiceImpl extends ServiceImpl<ImageMapper, Image> implements
         cos.batchDeleteObject(objectKeys);
         // 删除所有图片缓存
         for (Long imageId : imageIds) {
-            String cacheKey = generateCacheKey(imageId);
+            String cacheKey = RedisKey.IMAGE_BY_ID + imageId;
             if (redisService.isExists(cacheKey)) {
                 redisService.remove(cacheKey);
             }
@@ -330,10 +331,6 @@ public class ImageServiceImpl extends ServiceImpl<ImageMapper, Image> implements
 
     private String generateFileName(String extension) {
         return System.currentTimeMillis() + "_" + UUID.randomUUID().toString() + extension;
-    }
-
-    private String generateCacheKey(Long imageId) {
-        return "image:" + imageId;
     }
 
     /**

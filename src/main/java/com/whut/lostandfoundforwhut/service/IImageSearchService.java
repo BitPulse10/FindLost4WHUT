@@ -18,15 +18,15 @@ public interface IImageSearchService {
     List<ImageSearchVO> uploadImageSearchs(List<MultipartFile> files);
 
     /**
-     * 根据图搜临时图片ID删除图搜临时图片
-     * @param ids 图搜临时图片ID列表
-     */
-
-    /**
      * 根据图搜临时图片ID查询图搜临时图片的URL
      * @param id 图搜临时图片ID
      * @return 图搜临时图片的URL
      */
     String getUrl(Long id);
+
+    /**
+     * 根据图搜临时图片ID删除图搜临时图片
+     * @param ids 图搜临时图片ID列表
+     */
     void deleteImageSearchsByIds(List<Long> ids);
 }

@@ -55,5 +55,8 @@ public class Constants {
         public static final String REFRESH_TOKEN = PREFIX + "auth:refresh:";
         /** 刷新 Token 通过邮箱 Key 示例：lost_and_found:auth:refresh:by_email:test@xx.com */
         public static final String REFRESH_TOKEN_BY_EMAIL = PREFIX + "auth:refresh:by_email:";
+        
+        public static final String IMAGE_BY_ID = PREFIX + "image:";
+        public static final String IMAGE_SEARCH_BY_ID = PREFIX + "image_search:";
     }
 }
