@@ -80,6 +80,20 @@ CREATE TABLE images (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='图片表';
 
 -- ----------------------
+-- 图搜临时图片表
+-- ----------------------
+DROP TABLE IF EXISTS `image_search`;
+CREATE TABLE image_search (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '自增主键',
+  url VARCHAR(500) NOT NULL COMMENT '图片访问URL',
+  object_key VARCHAR(500) UNIQUE NOT NULL COMMENT '图片对象键（唯一）',
+  user_id BIGINT NOT NULL COMMENT '上传用户ID',
+  create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  expire_time DATETIME NOT NULL COMMENT '过期时间',
+  FOREIGN KEY (user_id) REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='图搜临时图片表';
+
+-- ----------------------
 -- 物品图片关联表
 -- ----------------------
 DROP TABLE IF EXISTS `item_images`;
@@ -116,6 +130,8 @@ CREATE INDEX idx_item_tags_tag_id ON item_tags(tag_id);
 CREATE INDEX idx_item_tags_tag_item ON item_tags(tag_id, item_id);
 CREATE INDEX idx_item_images_item_id ON item_images(item_id);
 CREATE INDEX idx_item_images_image_id ON item_images(image_id);
+CREATE INDEX idx_image_search_expire_time ON image_search(expire_time);
+CREATE INDEX idx_image_search_user_create ON image_search(user_id, create_time);
 CREATE INDEX idx_users_email ON users(email);
 
 INSERT INTO users (email, password_hash, nickname, status)
