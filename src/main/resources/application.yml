@@ -2,6 +2,11 @@ spring:
   config:
     import:
       - optional:file:docs/dev-ops/environment/.env[.properties]
+  servlet:
+    multipart:
+      # multipart 解析阶段限制（到达 Controller 前生效）
+      max-file-size: 10MB
+      max-request-size: 50MB
   application:
     name: lostAndFoundForWhut
   profiles:
@@ -23,7 +28,8 @@ app:
     default-password: admin123
     enabled: true # 默认开启；即使显式关闭也不会放开接口鉴权
   upload:
-    max-file-size: 1MB
+    # 业务层图片大小校验（ImageServiceImpl 使用）
+    max-file-size: 10MB
 
 mybatis-plus:
   mapper-locations: classpath*:mapper/**/*.xml

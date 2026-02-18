@@ -37,10 +37,16 @@ import org.springframework.util.StringUtils;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
@@ -58,6 +64,9 @@ import com.whut.lostandfoundforwhut.mapper.ImageMapper;
 public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements IItemService {
     private static final String PRIVATE_TAG_NAMESPACE = "__sys_priv__:";
     private static final String PRIVATE_NO_PREFIX = "__sys_priv__:no:";
+    private static final String PRIVATE_TAG_INPUT_PREFIX = "priv:";
+    private static final String PRIVATE_NO_KEY = "no";
+    private static final int PRIVATE_TAG_HASH_LENGTH = 16;
     private static final List<String> PRIVATE_NO_LEGACY_KEYS = List.of("card_no", "id_no", "student_no", "unique_no");
 
     private final ItemMapper itemMapper;
@@ -320,6 +329,7 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
         Integer status = itemFilterDTO.getStatus();
         LocalDateTime startTime = itemFilterDTO.getStartTime();
         LocalDateTime endTime = itemFilterDTO.getEndTime();
+        String keyword = itemFilterDTO.getKeyword();
         // 类型筛选
         queryWrapper.eq(type != null, Item::getType, type);
 
@@ -329,9 +339,14 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
         // 时间段筛选
         queryWrapper.ge(startTime != null, Item::getCreatedAt, startTime);
         queryWrapper.le(endTime != null, Item::getCreatedAt, endTime);
+        queryWrapper.and(StringUtils.hasText(keyword), wrapper -> wrapper
+                .like(Item::getDescription, keyword)
+                .or()
+                .like(Item::getEventPlace, keyword));
 
         // 标签筛选
         if (itemFilterDTO.getTags() != null && !itemFilterDTO.getTags().isEmpty()) {
+            List<String> requestedTags = expandPrivateNoAliases(itemFilterDTO.getTags());
             List<Tag> tags = tagMapper.selectList(
                     new LambdaQueryWrapper<Tag>().in(Tag::getName, requestedTags));
 
@@ -343,9 +358,23 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
                 List<Long> itemIds = itemTagMapper.selectList(
                         new LambdaQueryWrapper<ItemTag>().in(ItemTag::getTagId, tagIds))
                         .stream()
-                        .map(ItemTag::getItemId)
-                        .distinct()
-                        .collect(Collectors.toList());
+                        .collect(Collectors.collectingAndThen(Collectors.toList(), itemTags -> {
+                            if (Boolean.TRUE.equals(itemFilterDTO.getPreciseTagMatch())) {
+                                Map<Long, Set<Long>> itemToTagSet = new HashMap<>();
+                                for (ItemTag itemTag : itemTags) {
+                                    itemToTagSet.computeIfAbsent(itemTag.getItemId(), key -> new HashSet<>())
+                                            .add(itemTag.getTagId());
+                                }
+                                return itemToTagSet.entrySet().stream()
+                                        .filter(entry -> entry.getValue().containsAll(tagIds))
+                                        .map(Map.Entry::getKey)
+                                        .collect(Collectors.toList());
+                            }
+                            return itemTags.stream()
+                                    .map(ItemTag::getItemId)
+                                    .distinct()
+                                    .collect(Collectors.toList());
+                        }));
 
                 if (!itemIds.isEmpty()) {
                     queryWrapper.in(Item::getId, itemIds);
@@ -354,7 +383,6 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
                 }
             } else {
                 queryWrapper.eq(Item::getId, -1L);
-            }
             }
         }
 
@@ -406,12 +434,28 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
         if (tags == null || tags.isEmpty()) {
             return new ArrayList<>();
         }
-        LinkedHashSet<String> expanded = new LinkedHashSet<>(tags);
+        LinkedHashSet<String> expanded = new LinkedHashSet<>();
         for (String tag : tags) {
-            if (tag == null || !tag.startsWith(PRIVATE_NO_PREFIX)) {
+            if (!StringUtils.hasText(tag)) {
                 continue;
             }
-            String hash = tag.substring(PRIVATE_NO_PREFIX.length());
+            String normalized = tag.trim();
+            if (normalized.startsWith(PRIVATE_TAG_INPUT_PREFIX)) {
+                String transformed = normalizePrivateTagForFilter(normalized);
+                if (transformed != null) {
+                    expanded.add(transformed);
+                    normalized = transformed;
+                } else {
+                    continue;
+                }
+            } else {
+                expanded.add(normalized);
+            }
+
+            if (!normalized.startsWith(PRIVATE_NO_PREFIX)) {
+                continue;
+            }
+            String hash = normalized.substring(PRIVATE_NO_PREFIX.length());
             if (hash.isEmpty()) {
                 continue;
             }
@@ -420,6 +464,58 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
             }
         }
         return new ArrayList<>(expanded);
+    }
+
+    private String normalizePrivateTagForFilter(String rawTag) {
+        String normalized = rawTag.trim().toLowerCase(Locale.ROOT);
+        if (!normalized.startsWith(PRIVATE_TAG_INPUT_PREFIX)) {
+            return null;
+        }
+
+        String body = normalized.substring(PRIVATE_TAG_INPUT_PREFIX.length()).trim();
+        if (!StringUtils.hasText(body)) {
+            return null;
+        }
+
+        String[] keyValue;
+        if (body.contains("=")) {
+            keyValue = body.split("=", 2);
+        } else {
+            keyValue = body.split(":", 2);
+        }
+        if (keyValue.length != 2) {
+            return null;
+        }
+
+        String key = keyValue[0].replaceAll("[^a-z0-9_]", "").trim();
+        String value = keyValue[1].trim().toLowerCase(Locale.ROOT);
+        if (!StringUtils.hasText(key) || !StringUtils.hasText(value)) {
+            return null;
+        }
+
+        if ("card_no".equals(key) || "id_no".equals(key) || "student_no".equals(key) || "unique_no".equals(key)) {
+            key = PRIVATE_NO_KEY;
+        }
+
+        String digest = sha256(value);
+        if (digest.length() > PRIVATE_TAG_HASH_LENGTH) {
+            digest = digest.substring(0, PRIVATE_TAG_HASH_LENGTH);
+        }
+        return PRIVATE_TAG_NAMESPACE + key + ":" + digest;
+    }
+
+    private String sha256(String value) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] bytes = digest.digest(value.getBytes(StandardCharsets.UTF_8));
+            StringBuilder hex = new StringBuilder(bytes.length * 2);
+            for (byte b : bytes) {
+                hex.append(String.format("%02x", b));
+            }
+            return hex.toString();
+        } catch (NoSuchAlgorithmException e) {
+            throw new AppException(ResponseCode.UN_ERROR.getCode(), "私密标签摘要失败");
+        }
     }
 
     @Override
@@ -445,6 +541,46 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
         vectorService.removeFromVectorDatabase(itemId);
 
         return rows > 0;
+    }
+
+    @Override
+    public PageResultVO<Item> listMyItems(Long userId, Integer pageNo, Integer pageSize, Integer type, String keyword) {
+        if (userId == null) {
+            throw new AppException(ResponseCode.NOT_LOGIN.getCode(), ResponseCode.NOT_LOGIN.getInfo());
+        }
+
+        int normalizedPageNo = (pageNo == null || pageNo < 1) ? 1 : pageNo;
+        int normalizedPageSize = (pageSize == null || pageSize < 1) ? 20 : Math.min(pageSize, 100);
+
+        Page<Item> page = new Page<>(normalizedPageNo, normalizedPageSize);
+        LambdaQueryWrapper<Item> queryWrapper = new LambdaQueryWrapper<>();
+        queryWrapper.eq(Item::getUserId, userId);
+        queryWrapper.eq(type != null, Item::getType, type);
+        queryWrapper.and(StringUtils.hasText(keyword), wrapper -> wrapper
+                .like(Item::getDescription, keyword)
+                .or()
+                .like(Item::getEventPlace, keyword));
+        queryWrapper.orderByDesc(Item::getCreatedAt);
+
+        itemMapper.selectPage(page, queryWrapper);
+
+        List<Item> records = page.getRecords();
+        if (records != null && !records.isEmpty()) {
+            List<Long> itemIds = records.stream().map(Item::getId).distinct().toList();
+            List<ItemTagNameDTO> mappings = tagMapper.selectNamesByItemIds(itemIds);
+            Map<Long, List<String>> tagMap = new HashMap<>();
+            for (ItemTagNameDTO mapping : mappings) {
+                if (mapping.getName() != null && mapping.getName().startsWith(PRIVATE_TAG_NAMESPACE)) {
+                    continue;
+                }
+                tagMap.computeIfAbsent(mapping.getItemId(), key -> new ArrayList<>()).add(mapping.getName());
+            }
+            for (Item item : records) {
+                item.setTags(tagMap.getOrDefault(item.getId(), new ArrayList<>()));
+            }
+        }
+
+        return PageUtils.toPageResult(page);
     }
 
     @Override

@@ -4,6 +4,7 @@ import com.whut.lostandfoundforwhut.common.enums.ResponseCode;
 import com.whut.lostandfoundforwhut.common.result.Result;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.validation.BindException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -41,6 +42,15 @@ public class GlobalExceptionHandler {
     public Result<Void> handleValidation(Exception e) {
         log.error("Validation exception", e);
         return Result.fail(ResponseCode.ILLEGAL_PARAMETER);
+    }
+
+    /**
+     * @description 处理上传文件超限异常
+     */
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public Result<Void> handleMaxUploadSize(MaxUploadSizeExceededException e) {
+        log.warn("Upload size exceeded", e);
+        return Result.fail(ResponseCode.ILLEGAL_PARAMETER.getCode(), "上传文件过大：单张不超过10MB，总请求不超过50MB");
     }
 
     /**
