@@ -27,6 +27,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.File;
 import java.io.IOException;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -66,6 +67,8 @@ public class ImageServiceImpl extends ServiceImpl<ImageMapper, Image> implements
     @Autowired
     private IRedisService redisService;
 
+    // 图片对象键前缀
+    private String IMAGE_OBJECT_KEY_PREFIX = "images/";
     // 最小置信度
     private int CONTENT_RECOGNITION_MIN_CONFIDENCE = 60;
     // 允许的图片扩展名列表
@@ -99,7 +102,7 @@ public class ImageServiceImpl extends ServiceImpl<ImageMapper, Image> implements
             for (MultipartFile file : files) {
                 if (file == null || file.isEmpty()) { continue; }
                 // 上传文件到COS并获取唯一文件名
-                String objectKey = uploadFileToCOSReturnObjectKey(file, "images/");
+                String objectKey = uploadFileToCOSReturnObjectKey(file, IMAGE_OBJECT_KEY_PREFIX);
                 // 添加到COS存储对象键列表
                 objectKeys.add(objectKey);
             }
@@ -133,10 +136,11 @@ public class ImageServiceImpl extends ServiceImpl<ImageMapper, Image> implements
 
             // 缓存所有图片
             for (Image image : images) {
-                Long imageId = image.getId();
-                redisService.setValue(generateCacheKey(imageId), image);
+                String cacheKey = generateCacheKey(image.getId());
+                redisService.setValue(cacheKey, image);
             }
 
+            log.info("[ImageServiceImpl] 已上传 {} 张图片", images.size());
             return images.stream().map(Image::getId).collect(Collectors.toList());
         } catch (Exception e) {
             // 删除COS上的文件
@@ -217,7 +221,7 @@ public class ImageServiceImpl extends ServiceImpl<ImageMapper, Image> implements
         Image image = imageMapper.selectById(imageId);
         if (image == null) {
             // 数据库也没有，缓存空值
-            redisService.setValue(cacheKey, null);
+            redisService.setValue(cacheKey, null, Duration.ofHours(1));
             return null;
         }
 
@@ -276,7 +280,7 @@ public class ImageServiceImpl extends ServiceImpl<ImageMapper, Image> implements
             }
         }
         
-        log.info("已删除 {} 条图片记录和 {} 个COS文件", imageIds.size(), objectKeys.size());
+        log.info("[ImageServiceImpl] 已删除 {} 条图片记录和 {} 个COS文件", imageIds.size(), objectKeys.size());
     }
 
     /**

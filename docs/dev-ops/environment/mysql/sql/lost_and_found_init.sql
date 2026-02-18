@@ -87,10 +87,8 @@ CREATE TABLE image_search (
   id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '自增主键',
   url VARCHAR(500) NOT NULL COMMENT '图片访问URL',
   object_key VARCHAR(500) UNIQUE NOT NULL COMMENT '图片对象键（唯一）',
-  user_id BIGINT NOT NULL COMMENT '上传用户ID',
   create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-  expire_time DATETIME NOT NULL COMMENT '过期时间',
-  FOREIGN KEY (user_id) REFERENCES users(id)
+  expire_time DATETIME NOT NULL COMMENT '过期时间'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='图搜临时图片表';
 
 -- ----------------------
