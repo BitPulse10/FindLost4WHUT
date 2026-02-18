@@ -36,5 +36,8 @@ public class ItemFilterDTO {
     private LocalDateTime startTime;
     private LocalDateTime endTime;
 
+    // 关键词筛选（匹配描述和地点）
+    private String keyword;
+
     private SearchDTO searchDTO;
 }

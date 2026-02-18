@@ -10,11 +10,13 @@ import lombok.Data;
 public class UserPublicVO {
     private Long id;
     private String nickname;
+    private String email;
 
     public static UserPublicVO from(User user) {
         UserPublicVO vo = new UserPublicVO();
         vo.setId(user.getId());
         vo.setNickname(user.getNickname());
+        vo.setEmail(user.getEmail());
         return vo;
     }
 }
