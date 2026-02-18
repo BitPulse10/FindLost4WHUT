@@ -21,6 +21,7 @@ import com.whut.lostandfoundforwhut.model.entity.ItemTag;
 import com.whut.lostandfoundforwhut.model.entity.Tag;
 import com.whut.lostandfoundforwhut.model.entity.User;
 import com.whut.lostandfoundforwhut.model.vo.PageResultVO;
+import com.whut.lostandfoundforwhut.service.IImageService;
 import com.whut.lostandfoundforwhut.service.IItemService;
 import com.whut.lostandfoundforwhut.service.ITagService;
 import com.whut.lostandfoundforwhut.service.IVectorService;
@@ -75,6 +76,7 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
     private final ItemTagMapper itemTagMapper;
     private final ItemImageMapper itemImageMapper;
     private final ImageMapper imageMapper;
+    private final IImageService imageService;
     private final ITagService tagService;
     private final IVectorService vectorService;
 
@@ -150,12 +152,19 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
         boolean descriptionChanged = isDescriptionChanged(existingItem.getDescription(), newDescription);
         boolean imageChanged = detectImageChange(currentImageIds, newImageIds);
         boolean needVectorUpdate = descriptionChanged || imageChanged;
+        boolean statusChangedToClosed = itemDTO.getStatus() != null
+                && ItemStatus.CLOSED.getCode().equals(itemDTO.getStatus())
+                && !ItemStatus.CLOSED.getCode().equals(existingItem.getStatus());
 
         // 更新物品基本信息字段
         updateItemFields(existingItem, itemDTO);
 
-        // 如果描述或图片发生变化，处理图片关联和向量库更新
-        if (needVectorUpdate) {
+        // 结束帖子时，仅清理向量库和相似搜索缓存，保留图片与标签等关联数据
+        if (statusChangedToClosed) {
+            vectorService.removeFromVectorDatabase(existingItem.getId());
+            clearSimilarSearchCache();
+        } else if (needVectorUpdate) {
+            // 如果描述或图片发生变化，处理图片关联和向量库更新
             handleImageUpdate(existingItem, newImageIds);
 
             // 更新向量数据库
@@ -519,6 +528,7 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
     }
 
     @Override
+    @Transactional
     public boolean takeDownItem(Long itemId, Long userId) {
         // 查询物品是否存在且属于当前用户
         Item existingItem = itemMapper.selectById(itemId);
@@ -528,19 +538,34 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
         if (!existingItem.getUserId().equals(userId)) {
             throw new AppException(ResponseCode.NO_PERMISSION.getCode(), ResponseCode.NO_PERMISSION.getInfo());
         }
-        if (ItemStatus.CLOSED.getCode().equals(existingItem.getStatus())) {
-            throw new AppException(ResponseCode.ITEM_STATUS_INVALID.getCode(),
-                    ResponseCode.ITEM_STATUS_INVALID.getInfo());
-        }
+
+        // 先获取关联图片ID，后续用于清理图片关系和图片记录
+        List<Long> imageIds = itemImageMapper.getImageIdsByItemId(itemId);
 
         // 逻辑删除
         existingItem.setIsDeleted(1);
         int rows = itemMapper.updateById(existingItem);
+        if (rows <= 0) {
+            return false;
+        }
+
+        // 清理标签关联（同时清理标签缓存）
+        tagService.replaceTagsForItem(itemId, new ArrayList<>());
+
+        // 清理物品-图片关联
+        itemImageMapper.deleteByItemId(itemId);
+
+        // 清理图片表记录和存储文件
+        if (imageIds != null && !imageIds.isEmpty()) {
+            imageService.deleteImagesByIds(imageIds);
+        }
 
         // 从向量数据库中删除物品描述
         vectorService.removeFromVectorDatabase(itemId);
+        // 清理相似搜索缓存，避免继续命中已删除物品
+        clearSimilarSearchCache();
 
-        return rows > 0;
+        return true;
     }
 
     @Override
