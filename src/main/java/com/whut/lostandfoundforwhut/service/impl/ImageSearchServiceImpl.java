@@ -54,7 +54,7 @@ public class ImageSearchServiceImpl extends ServiceImpl<ImageMapper, Image> impl
     private final ContentReviewer contentReviewer; // 内容审核器
     private final ImageProcessor imageProcessor; // 图片处理器
 
-    private IRedisService redisService;
+    private final IRedisService redisService;
     private final ImageSearchMapper imageSearchMapper;
 
     @PostConstruct
@@ -184,6 +184,16 @@ public class ImageSearchServiceImpl extends ServiceImpl<ImageMapper, Image> impl
         // 缓存图片
         redisService.setValue(cacheKey, imageSearch, imageSearchExpireDuration);
         return imageSearch.getUrl();
+    }
+
+    /**
+     * @description 根据过期时间查询过期的图片搜索
+     * @param expireTime 过期时间
+     * @return 过期的图片搜索列表
+     */
+    @Override
+    public List<ImageSearch> findExpiredBefore(LocalDateTime expireTime) {
+        return imageSearchMapper.selectExpiredBefore(expireTime);
     }
 
     // 验证文件

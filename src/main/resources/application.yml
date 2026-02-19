@@ -54,3 +54,8 @@ tencent:
     secret-key: ${TENCENT_COS_SECRET_KEY}
     bucket-name: ${TENCENT_COS_BUCKET_NAME}
     region: ${TENCENT_COS_REGION}
+
+scheduling:
+  task:
+    clear-image-search:
+      interval: 1h
