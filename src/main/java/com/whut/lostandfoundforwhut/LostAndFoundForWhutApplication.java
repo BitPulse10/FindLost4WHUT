@@ -3,6 +3,7 @@ package com.whut.lostandfoundforwhut;
 import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
  * @author DXR
@@ -11,6 +12,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  */
 @MapperScan("com.whut.lostandfoundforwhut.mapper")
 @SpringBootApplication
+@EnableScheduling
 public class LostAndFoundForWhutApplication {
 
     /**

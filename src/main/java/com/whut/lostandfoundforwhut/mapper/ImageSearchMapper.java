@@ -1,7 +1,9 @@
 package com.whut.lostandfoundforwhut.mapper;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
+import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
@@ -20,5 +22,13 @@ public interface ImageSearchMapper extends BaseMapper<ImageSearch> {
             "</foreach>" +
             "</script>")
     List<String> selectUrlsByIds(List<Long> ids);
+    
+    /**
+     * 查找所有过期时间小于指定时间的 imageSearch
+     * @param expireTime 过期时间
+     * @return imageSearch 列表
+     */
+    @Select("SELECT * FROM image_search WHERE expire_time < #{expireTime}")
+    List<ImageSearch> selectExpiredBefore(@Param("expireTime") LocalDateTime expireTime);
     
 }

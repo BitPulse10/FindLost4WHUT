@@ -17,6 +17,7 @@ import java.time.Duration;
 import org.springframework.web.multipart.MultipartFile;
 
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.whut.lostandfoundforwhut.common.constant.Constants.RedisKey;
 import com.whut.lostandfoundforwhut.common.enums.ResponseCode;
 import com.whut.lostandfoundforwhut.common.exception.AppException;
 import com.whut.lostandfoundforwhut.common.utils.cos.COS;
@@ -53,7 +54,7 @@ public class ImageSearchServiceImpl extends ServiceImpl<ImageMapper, Image> impl
     private final ContentReviewer contentReviewer; // 内容审核器
     private final ImageProcessor imageProcessor; // 图片处理器
 
-    private IRedisService redisService;
+    private final IRedisService redisService;
     private final ImageSearchMapper imageSearchMapper;
 
     @PostConstruct
@@ -110,13 +111,13 @@ public class ImageSearchServiceImpl extends ServiceImpl<ImageMapper, Image> impl
 
             // 保存到数据库
             for (ImageSearch imageSearch : imageSearchs) {
-                Long imageId = imageSearch.getId();
-                redisService.setValue(generateCacheKey(imageId), imageSearch);
+                String cacheKey = RedisKey.IMAGE_SEARCH_BY_ID + imageSearch.getId();
+                redisService.setValue(cacheKey, imageSearch);
             }
 
             // 缓存所有图片
             for (ImageSearch imageSearch : imageSearchs) {
-                String cacheKey = generateCacheKey(imageSearch.getId());
+                String cacheKey = RedisKey.IMAGE_SEARCH_BY_ID + imageSearch.getId();
                 redisService.setValue(cacheKey, imageSearch, imageSearchExpireDuration);
             }
 
@@ -150,7 +151,7 @@ public class ImageSearchServiceImpl extends ServiceImpl<ImageMapper, Image> impl
         cos.batchDeleteObject(objectKeys);
         // 删除所有图片缓存
         for (Long id : ids) {
-            String cacheKey = generateCacheKey(id);
+            String cacheKey = RedisKey.IMAGE_SEARCH_BY_ID + id;
             if (redisService.isExists(cacheKey)) {
                 redisService.remove(cacheKey);
             }
@@ -167,7 +168,7 @@ public class ImageSearchServiceImpl extends ServiceImpl<ImageMapper, Image> impl
     @Override
     public String getUrl(Long id) {
         // 从缓存中获取图片URL
-        String cacheKey = generateCacheKey(id);
+        String cacheKey = RedisKey.IMAGE_SEARCH_BY_ID + id;
         if (redisService.isExists(cacheKey)) {
             ImageSearch imageSearch = (ImageSearch) redisService.getValue(cacheKey);
             return imageSearch != null ? imageSearch.getUrl() : null; // 缓存空值，说明不存在
@@ -183,6 +184,16 @@ public class ImageSearchServiceImpl extends ServiceImpl<ImageMapper, Image> impl
         // 缓存图片
         redisService.setValue(cacheKey, imageSearch, imageSearchExpireDuration);
         return imageSearch.getUrl();
+    }
+
+    /**
+     * @description 根据过期时间查询过期的图片搜索
+     * @param expireTime 过期时间
+     * @return 过期的图片搜索列表
+     */
+    @Override
+    public List<ImageSearch> findExpiredBefore(LocalDateTime expireTime) {
+        return imageSearchMapper.selectExpiredBefore(expireTime);
     }
 
     // 验证文件
@@ -245,7 +256,4 @@ public class ImageSearchServiceImpl extends ServiceImpl<ImageMapper, Image> impl
         if (messageItems.isEmpty()) { return null; }
         return messageItems.stream().collect(Collectors.joining(separator));
     }
-    
-    // 生成缓存键
-    private String generateCacheKey(Long id) { return "image-search:" + id; }
 }
