@@ -39,14 +39,14 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class ImageSearchServiceImpl extends ServiceImpl<ImageMapper, Image> implements IImageSearchService {
+public class ImageSearchServiceImpl extends ServiceImpl<ImageSearchMapper, ImageSearch> implements IImageSearchService {
     @Value("${app.upload.max-file-size}")
     private String maxFileSize; // 最大文件大小
     private Long maxFileSizeBytes; // 最大文件大小（字节）
-    
+
     private String IMAGE_SEARCH_EXPIRE_TIME = "1h"; // 图片搜索过期时间
     private Duration imageSearchExpireDuration;
-    
+
     private String IMAGE_SEARCH_OBJECT_KEY_PREFIX = "image-search/"; // 图片搜索对象键前缀
     private List<String> allowedExtensions = Arrays.asList(".jpg", ".jpeg", ".png", ".gif");
 
@@ -65,15 +65,20 @@ public class ImageSearchServiceImpl extends ServiceImpl<ImageMapper, Image> impl
 
     /**
      * 上传图搜临时图片文件列表
+     * 
      * @param files 图搜临时图片文件列表
      * @return 图搜临时图片实体ID列表
      */
     @Override
     public List<ImageSearchVO> uploadImageSearchs(List<MultipartFile> files) {
-        if (files == null || files.isEmpty()) { return new ArrayList<>(); }
+        if (files == null || files.isEmpty()) {
+            return new ArrayList<>();
+        }
 
         for (MultipartFile file : files) {
-            if (file == null || file.isEmpty()) { continue; }
+            if (file == null || file.isEmpty()) {
+                continue;
+            }
             validateImageFile(file);
         }
 
@@ -82,7 +87,9 @@ public class ImageSearchServiceImpl extends ServiceImpl<ImageMapper, Image> impl
         try {
             // 上传所有文件
             for (MultipartFile file : files) {
-                if (file == null || file.isEmpty()) { continue; }
+                if (file == null || file.isEmpty()) {
+                    continue;
+                }
                 String objectKey = uploadFileToCOSReturnObjectKey(file, IMAGE_SEARCH_OBJECT_KEY_PREFIX);
                 objectKeys.add(objectKey);
             }
@@ -90,11 +97,17 @@ public class ImageSearchServiceImpl extends ServiceImpl<ImageMapper, Image> impl
             // 审核所有图片
             List<String> messages = contentReviewer.batchReviewImageKey(objectKeys);
             String message = joinMessages(messages, "; ", (i, msg) -> "图片" + (i + 1) + "审核失败: " + msg);
-            if (message != null) { throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(), message); }
+            if (message != null) {
+                throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(), message);
+            }
             // 压缩所有图片
-            for (String objectKey : objectKeys) { imageProcessor.processimage(objectKey); }
+            for (String objectKey : objectKeys) {
+                imageProcessor.processimage(objectKey);
+            }
             // 设置所有图片为公共读权限
-            for (String objectKey : objectKeys) { cos.setObjectPublicRead(objectKey); }
+            for (String objectKey : objectKeys) {
+                cos.setObjectPublicRead(objectKey);
+            }
 
             // 批量保存到数据库
             for (String objectKey : objectKeys) {
@@ -122,15 +135,16 @@ public class ImageSearchServiceImpl extends ServiceImpl<ImageMapper, Image> impl
             }
 
             log.info("[ImageSearchServiceImpl] 已上传 {} 张图片搜索", imageSearchs.size());
-            return imageSearchs.stream().
-                    map(imageSearch -> new ImageSearchVO(imageSearch.getId(), imageSearch.getUrl())).
-                    collect(Collectors.toList());
+            return imageSearchs.stream()
+                    .map(imageSearch -> new ImageSearchVO(imageSearch.getId(), imageSearch.getUrl()))
+                    .collect(Collectors.toList());
         } catch (Exception e) {
             // 删除COS上的文件
             cos.batchDeleteObject(objectKeys);
 
             // 处理异常
-            if (e instanceof AppException) throw (AppException) e;
+            if (e instanceof AppException)
+                throw (AppException) e;
             throw new AppException(ResponseCode.UN_ERROR.getCode(), "文件上传失败: " + e.getMessage());
         }
     }
@@ -141,7 +155,9 @@ public class ImageSearchServiceImpl extends ServiceImpl<ImageMapper, Image> impl
      */
     @Override
     public void deleteImageSearchsByIds(List<Long> ids) {
-        if (ids == null || ids.isEmpty()) {  return; }
+        if (ids == null || ids.isEmpty()) {
+            return;
+        }
 
         List<ImageSearch> imageSearchs = imageSearchMapper.selectByIds(ids);
         // 删除数据库记录
@@ -156,7 +172,7 @@ public class ImageSearchServiceImpl extends ServiceImpl<ImageMapper, Image> impl
                 redisService.remove(cacheKey);
             }
         }
-        
+
         log.info("[ImageSearchServiceImpl] 已删除 {} 条图片搜索记录和 {} 个COS文件", ids.size(), objectKeys.size());
     }
 
@@ -218,7 +234,7 @@ public class ImageSearchServiceImpl extends ServiceImpl<ImageMapper, Image> impl
         return System.currentTimeMillis() + "_" + UUID.randomUUID().toString() + extension;
     }
 
-    //上传文件到COS并返回对象键
+    // 上传文件到COS并返回对象键
     private String uploadFileToCOSReturnObjectKey(MultipartFile file, String prefix) throws IOException {
         // 获取文件扩展名
         String originalFilename = file.getOriginalFilename();
@@ -241,19 +257,29 @@ public class ImageSearchServiceImpl extends ServiceImpl<ImageMapper, Image> impl
             List<String> messages,
             String separator,
             BiFunction<Integer, String, String> mapper) {
-        if (messages == null || messages.isEmpty()) { return null; }
+        if (messages == null || messages.isEmpty()) {
+            return null;
+        }
 
-        if (separator == null) { separator = ", "; }
-        if (mapper == null) { mapper = (index, message) -> message; }
+        if (separator == null) {
+            separator = ", ";
+        }
+        if (mapper == null) {
+            mapper = (index, message) -> message;
+        }
 
         List<String> messageItems = new ArrayList<>();
         for (int i = 0; i < messages.size(); i++) {
-            if (messages.get(i) == null) { continue; }
+            if (messages.get(i) == null) {
+                continue;
+            }
 
             String messageItem = mapper.apply(i, messages.get(i));
             messageItems.add(messageItem);
         }
-        if (messageItems.isEmpty()) { return null; }
+        if (messageItems.isEmpty()) {
+            return null;
+        }
         return messageItems.stream().collect(Collectors.joining(separator));
     }
 }
