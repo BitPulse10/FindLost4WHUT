@@ -129,7 +129,6 @@ CREATE INDEX idx_item_tags_tag_item ON item_tags(tag_id, item_id);
 CREATE INDEX idx_item_images_item_id ON item_images(item_id);
 CREATE INDEX idx_item_images_image_id ON item_images(image_id);
 CREATE INDEX idx_image_search_expire_time ON image_search(expire_time);
-CREATE INDEX idx_image_search_user_create ON image_search(user_id, create_time);
 CREATE INDEX idx_users_email ON users(email);
 
 INSERT INTO users (email, password_hash, nickname, status)

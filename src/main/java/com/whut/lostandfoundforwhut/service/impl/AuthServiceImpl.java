@@ -50,6 +50,7 @@ public class AuthServiceImpl implements IAuthService {
     private static final Duration LOGIN_LOCK_TTL = Duration.ofMinutes(5);
     private static final Duration RE_REGISTER_COOLDOWN = Duration.ofDays(10);
     private static final int LOGIN_MAX_FAILS = 5;
+    private static final String WHUT_EMAIL_SUFFIX = "@whut.edu.cn";
 
     private final IRedisService redisService;
     private final JavaMailSender mailSender;
@@ -69,6 +70,7 @@ public class AuthServiceImpl implements IAuthService {
         if (!StringUtils.hasText(email)) {
             throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(), "邮箱不能为空");
         }
+        email = normalizeAndValidateWhutEmail(email);
         if (!StringUtils.hasText(mailFrom)) {
             throw new AppException(ResponseCode.MAIL_CONFIG_INVALID.getCode(), "邮件发送配置无效");
         }
@@ -106,6 +108,7 @@ public class AuthServiceImpl implements IAuthService {
         if (!StringUtils.hasText(dto.getEmail())) {
             throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(), "邮箱不能为空");
         }
+        String email = normalizeAndValidateWhutEmail(dto.getEmail());
         if (!StringUtils.hasText(dto.getPassword())) {
             throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(), "密码不能为空");
         }
@@ -119,10 +122,10 @@ public class AuthServiceImpl implements IAuthService {
             throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(), "密码与确认密码不一致");
         }
 
-        User existing = userMapper.selectOne(new LambdaQueryWrapper<User>().eq(User::getEmail, dto.getEmail()));
+        User existing = userMapper.selectOne(new LambdaQueryWrapper<User>().eq(User::getEmail, email));
         boolean shouldReactivate = assertRegisterAllowed(existing);
 
-        String codeKey = Constants.RedisKey.REGISTER_CODE + dto.getEmail();
+        String codeKey = Constants.RedisKey.REGISTER_CODE + email;
         Object cachedCode = redisService.getValue(codeKey);
         if (cachedCode == null) {
             throw new AppException(ResponseCode.USER_EMAIL_CODE_EXPIRED.getCode(), "邮箱验证码已过期");
@@ -133,11 +136,11 @@ public class AuthServiceImpl implements IAuthService {
         redisService.remove(codeKey);
 
         if (shouldReactivate) {
-            return userService.reactivateUser(dto.getEmail(), dto.getPassword(), dto.getNickname());
+            return userService.reactivateUser(email, dto.getPassword(), dto.getNickname());
         }
 
         UserCreateDTO createDTO = new UserCreateDTO();
-        createDTO.setEmail(dto.getEmail());
+        createDTO.setEmail(email);
         createDTO.setPassword(dto.getPassword());
         createDTO.setConfirmPassword(dto.getConfirmPassword());
         createDTO.setNickname(dto.getNickname());
@@ -342,5 +345,13 @@ public class AuthServiceImpl implements IAuthService {
             return true;
         }
         throw new AppException(ResponseCode.USER_EMAIL_EXISTS.getCode(), "邮箱已存在，无法重复注册");
+    }
+
+    private String normalizeAndValidateWhutEmail(String email) {
+        String normalized = email == null ? "" : email.trim().toLowerCase();
+        if (!normalized.endsWith(WHUT_EMAIL_SUFFIX)) {
+            throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(), "仅支持武汉理工大学邮箱（@whut.edu.cn）注册");
+        }
+        return normalized;
     }
 }

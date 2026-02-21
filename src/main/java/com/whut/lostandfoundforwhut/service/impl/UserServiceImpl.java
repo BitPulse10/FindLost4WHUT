@@ -41,6 +41,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
     private final IRedisService redisService;
 
     private static final Duration USER_CACHE_TTL = Duration.ofMinutes(30);
+    private static final String WHUT_EMAIL_SUFFIX = "@whut.edu.cn";
 
     @Value("${app.security.enabled:false}")
     private boolean securityEnabled;
@@ -53,6 +54,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         if (!StringUtils.hasText(dto.getEmail())) {
             throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(), "邮箱不能为空");
         }
+        String normalizedEmail = normalizeAndValidateWhutEmail(dto.getEmail());
         if (!StringUtils.hasText(dto.getPassword())) {
             throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(), "密码不能为空");
         }
@@ -63,13 +65,13 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
             throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(), "密码与确认密码不一致");
         }
 
-        User existing = userMapper.selectOne(new LambdaQueryWrapper<User>().eq(User::getEmail, dto.getEmail()));
+        User existing = userMapper.selectOne(new LambdaQueryWrapper<User>().eq(User::getEmail, normalizedEmail));
         if (existing != null) {
             throw new AppException(ResponseCode.DUPLICATE_OPERATION.getCode(), "用户邮箱已存在");
         }
 
         User user = new User();
-        user.setEmail(dto.getEmail());
+        user.setEmail(normalizedEmail);
         user.setPasswordHash(passwordEncoder.encode(dto.getPassword()));
         user.setNickname(dto.getNickname());
         user.setStatus(UserStatus.NORMAL.getCode());
@@ -353,5 +355,13 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
 
     private String buildUserEmailByIdKey(Long userId) {
         return Constants.RedisKey.USER_EMAIL_BY_ID + userId;
+    }
+
+    private String normalizeAndValidateWhutEmail(String email) {
+        String normalized = email == null ? "" : email.trim().toLowerCase();
+        if (!normalized.endsWith(WHUT_EMAIL_SUFFIX)) {
+            throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(), "仅支持武汉理工大学邮箱（@whut.edu.cn）注册");
+        }
+        return normalized;
     }
 }

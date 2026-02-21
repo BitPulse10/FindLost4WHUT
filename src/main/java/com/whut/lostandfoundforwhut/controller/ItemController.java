@@ -17,12 +17,9 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import com.whut.lostandfoundforwhut.service.IUserService;
-import com.whut.lostandfoundforwhut.mapper.ItemImageMapper;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 
 /**
  * @author Qoder
@@ -40,7 +37,6 @@ public class ItemController {
     private final IUserService userService;
     private final IImageService imageService;
     private final IItemDetailService itemDetailService;
-    private final ItemImageMapper itemImageMapper;
 
     @PostMapping("/add-item")
     @Operation(summary = "添加物品", description = "添加新的挂失或招领物品 ，返回物品ID")
@@ -82,20 +78,6 @@ public class ItemController {
 
             return Result.success(updatedItem);
         } catch (Exception e) {
-            // 捕获异常后，删除要删除的图片
-            List<Long> updateImageId = itemDTO.getImageIds();
-            List<Long> oldImageIds = Optional.ofNullable(itemImageMapper.getImageIdsByItemId(itemId))
-                    .orElse(new ArrayList<>()); // 获取旧图片实体列表
-            List<Long> deleteImageIds = new ArrayList<>();
-
-            // 如果有旧图片但新图片ID不同，则删除旧图片
-            if (!oldImageIds.isEmpty() && (updateImageId == null || !oldImageIds.contains(updateImageId))) {
-                deleteImageIds.addAll(oldImageIds);
-            }
-            if (deleteImageIds != null && !deleteImageIds.isEmpty()) {
-                imageService.deleteImagesByIds(deleteImageIds);
-            }
-
             if (e instanceof AppException) {
                 AppException appException = (AppException) e;
                 System.out.println("更新物品时发生业务异常：" + e.getMessage() + "，错误码：" + appException.getCode());
