@@ -65,6 +65,7 @@ import com.whut.lostandfoundforwhut.mapper.ImageMapper;
 @RequiredArgsConstructor
 @Slf4j
 public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements IItemService {
+    private static final String VECTOR_SYNC_RETRY_MESSAGE = "向量建库失败，请稍后重试；若仍失败请在个人中心重新编辑后重试";
     private static final String PRIVATE_TAG_NAMESPACE = "__sys_priv__:";
     private static final String PRIVATE_NO_PREFIX = "__sys_priv__:no:";
     private static final String PRIVATE_TAG_INPUT_PREFIX = "priv:";
@@ -120,7 +121,12 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
         List<String> imageUrls = imageMapper.selectUrlsByIds(imageIds);
 
         // 将物品描述和图片添加到向量数据库
-        vectorService.addImagesToVectorDatabase(item, imageUrls);
+        try {
+            vectorService.addImagesToVectorDatabase(item, imageUrls);
+        } catch (Exception e) {
+            log.error("新增物品时向量建库失败，物品ID：{}", item.getId(), e);
+            throw new AppException(ResponseCode.UN_ERROR.getCode(), VECTOR_SYNC_RETRY_MESSAGE);
+        }
 
         // 解析并绑定标签
         List<String> tagNames = tagService.parseTagText(itemDTO.getTagText());
@@ -151,6 +157,7 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
         // 检查是否有变化需要触发向量库更新
         String newDescription = itemDTO.getDescription();
         List<Long> newImageIds = itemDTO.getImageIds();
+        List<Long> effectiveImageIds = (newImageIds != null) ? newImageIds : currentImageIds;
 
         boolean descriptionChanged = isDescriptionChanged(existingItem.getDescription(), newDescription);
         boolean imageChanged = detectImageChange(currentImageIds, newImageIds);
@@ -161,20 +168,31 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
 
         // 更新物品基本信息字段
         updateItemFields(existingItem, itemDTO);
+        updateItemTags(itemId, itemDTO.getTagText());
 
         // 结束帖子时，仅清理向量库和相似搜索缓存，保留图片与标签等关联数据
         if (statusChangedToClosed) {
             vectorService.removeFromVectorDatabase(existingItem.getId());
             clearSimilarSearchCache();
-        } else if (needVectorUpdate) {
-            // 如果描述或图片发生变化，处理图片关联和向量库更新
-            handleImageUpdate(existingItem, newImageIds);
+        } else {
+            // 如果描述或图片发生变化，先更新图片关联
+            if (needVectorUpdate) {
+                handleImageUpdate(existingItem, currentImageIds, effectiveImageIds);
+            }
 
-            // 更新向量数据库
-            if (newImageIds != null && !newImageIds.isEmpty()) {
-                List<String> imageUrls = imageMapper.selectUrlsByIds(newImageIds);
-                vectorService.updateVectorDatabase(existingItem, imageUrls);
-                log.info("向量数据库已更新，物品ID：{}", existingItem.getId());
+            // 非关闭状态下，编辑后强制重建向量，避免历史入库失败的帖子无法被图搜命中
+            try {
+                if (effectiveImageIds != null && !effectiveImageIds.isEmpty()) {
+                    List<String> imageUrls = imageMapper.selectUrlsByIds(effectiveImageIds);
+                    vectorService.updateVectorDatabase(existingItem, imageUrls);
+                    log.info("向量数据库已同步，物品ID：{}", existingItem.getId());
+                } else {
+                    vectorService.removeFromVectorDatabase(existingItem.getId());
+                    log.info("无图片可用于向量重建，已移除向量，物品ID：{}", existingItem.getId());
+                }
+            } catch (Exception e) {
+                log.error("更新物品时向量建库失败，物品ID：{}", existingItem.getId(), e);
+                throw new AppException(ResponseCode.UN_ERROR.getCode(), VECTOR_SYNC_RETRY_MESSAGE);
             }
 
             // 清理相关的Redis缓存
@@ -186,6 +204,29 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
         log.info("物品更新成功，ID：{}", existingItem.getId());
 
         return existingItem;
+    }
+
+    private void updateItemTags(Long itemId, String tagText) {
+        if (tagText == null) {
+            return;
+        }
+
+        List<String> parsedTags = tagService.parseTagText(tagText);
+        boolean hasPrivateTagsInInput = parsedTags.stream()
+                .anyMatch(tag -> tag != null && tag.startsWith(PRIVATE_TAG_NAMESPACE));
+
+        if (!hasPrivateTagsInInput) {
+            List<String> existingPrivateTags = tagMapper.selectNamesByItemId(itemId).stream()
+                    .filter(name -> name != null && name.startsWith(PRIVATE_TAG_NAMESPACE))
+                    .toList();
+            if (!existingPrivateTags.isEmpty()) {
+                LinkedHashSet<String> merged = new LinkedHashSet<>(parsedTags);
+                merged.addAll(existingPrivateTags);
+                parsedTags = new ArrayList<>(merged);
+            }
+        }
+
+        tagService.replaceTagsForItem(itemId, parsedTags);
     }
 
     /**
@@ -253,21 +294,33 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
     /**
      * 处理图片更新：删除旧关联，添加新关联
      */
-    private void handleImageUpdate(Item existingItem, List<Long> newImageIds) {
+    private void handleImageUpdate(Item existingItem, List<Long> oldImageIds, List<Long> newImageIds) {
         Long itemId = existingItem.getId();
+        List<Long> safeOldImageIds = oldImageIds == null ? new ArrayList<>() : oldImageIds;
+        List<Long> safeNewImageIds = newImageIds == null ? new ArrayList<>() : newImageIds;
+
+        Set<Long> newImageSet = new HashSet<>(safeNewImageIds);
+        List<Long> removedImageIds = safeOldImageIds.stream()
+                .filter(id -> !newImageSet.contains(id))
+                .toList();
 
         // 删除旧的物品-图片关联
         itemImageMapper.deleteByItemId(itemId);
         log.info("已删除物品的旧图片关联，物品ID：{}", itemId);
 
         // 添加新的物品-图片关联
-        if (newImageIds != null && !newImageIds.isEmpty()) {
-            boolean success = itemImageMapper.insertItemImages(itemId, newImageIds);
+        if (!safeNewImageIds.isEmpty()) {
+            boolean success = itemImageMapper.insertItemImages(itemId, safeNewImageIds);
             if (success) {
-                log.info("已添加物品的新图片关联，物品ID：{}，图片ID列表：{}", itemId, newImageIds);
+                log.info("已添加物品的新图片关联，物品ID：{}，图片ID列表：{}", itemId, safeNewImageIds);
             } else {
-                log.warn("物品图片关联添加失败，物品ID：{}，图片ID列表：{}", itemId, newImageIds);
+                log.warn("物品图片关联添加失败，物品ID：{}，图片ID列表：{}", itemId, safeNewImageIds);
             }
+        }
+
+        if (!removedImageIds.isEmpty()) {
+            imageService.deleteImagesByIds(removedImageIds);
+            log.info("已清理更新中移除的旧图片，物品ID：{}，图片ID列表：{}", itemId, removedImageIds);
         }
     }
 
@@ -289,6 +342,11 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
                 itemFilterDTO.getPageNo(), itemFilterDTO.getPageSize());
 
         LambdaQueryWrapper<Item> queryWrapper = new LambdaQueryWrapper<>();
+
+        Integer type = itemFilterDTO.getType();
+        if (type != null && type == ItemType.CARD.getCode() && itemFilterDTO.getSearchDTO() != null) {
+            throw new AppException(ResponseCode.ILLEGAL_PARAMETER.getCode(), "卡证模式不支持图搜");
+        }
 
         // 从 Redis 获取相似搜索的物品ID列表
         if (itemFilterDTO.getSearchDTO() != null) {
@@ -337,7 +395,6 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
             }
         }
 
-        Integer type = itemFilterDTO.getType();
         Integer status = itemFilterDTO.getStatus();
         LocalDateTime startTime = itemFilterDTO.getStartTime();
         LocalDateTime endTime = itemFilterDTO.getEndTime();
@@ -700,7 +757,7 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
     /**
      * 清理相似搜索缓存
      * 
-     * @param itemId 物品ID
+     *
      */
     private void clearSimilarSearchCache() {
         try {

@@ -13,7 +13,9 @@ import org.springframework.stereotype.Service;
 import jakarta.annotation.PostConstruct;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -350,20 +352,27 @@ public class VectorServiceImpl implements IVectorService {
      * @return 嵌入向量
      */
     public Embedding generateMultimodalEmbedding(String text, List<String> imageUrls) {
-        // 使用HTTP方法处理多张图片
-        try {
-            Embedding httpResult = generateMultimodalEmbeddingsViaHttp(text, imageUrls);
-            if (httpResult != null) {
-                log.debug("多图片多模态嵌入生成成功（HTTP方式）");
-                return httpResult;
-            } else {
-                log.error("通过HTTP API生成多图片多模态嵌入失败");
-                throw new RuntimeException("通过HTTP API生成多图片多模态嵌入失败");
-            }
-        } catch (Exception e) {
-            log.error("使用HTTP生成多图片多模态嵌入失败: {}", e.getMessage(), e);
-            throw new RuntimeException("HTTP请求失败: " + e.getMessage(), e);
+        List<String> validImages = imageUrls == null ? List.of()
+                : imageUrls.stream().filter(url -> url != null && !url.trim().isEmpty()).map(String::trim).toList();
+
+        Embedding httpResult = generateMultimodalEmbeddingsViaHttp(text, validImages);
+        if (httpResult != null) {
+            log.debug("多图片多模态嵌入生成成功（HTTP方式）");
+            return httpResult;
         }
+
+        if (validImages.size() > 1) {
+            List<String> fallbackImages = List.of(validImages.get(0));
+            log.warn("多图嵌入失败，降级为单图重试，原图片数：{}，重试图片：{}", validImages.size(), fallbackImages.get(0));
+            Embedding fallbackResult = generateMultimodalEmbeddingsViaHttp(text, fallbackImages);
+            if (fallbackResult != null) {
+                log.info("单图重试成功，继续向量检索");
+                return fallbackResult;
+            }
+        }
+
+        log.error("通过HTTP API生成多图片多模态嵌入失败");
+        throw new RuntimeException("通过HTTP API生成多图片多模态嵌入失败");
     }
 
     /**
@@ -371,49 +380,32 @@ public class VectorServiceImpl implements IVectorService {
      */
     private Embedding generateMultimodalEmbeddingsViaHttp(String text, List<String> imageUrls) {
         try {
-            // 构建API请求
-            StringBuilder requestBody = new StringBuilder();
-            requestBody.append("{");
-            requestBody.append("\"model\":\"qwen3-vl-embedding\",");
-            requestBody.append("\"input\":{");
-            requestBody.append("\"contents\":[{");
+            ObjectMapper objectMapper = new ObjectMapper();
+            List<Map<String, String>> contents = new ArrayList<>();
 
-            // 添加文本内容
             if (text != null && !text.trim().isEmpty()) {
-                requestBody.append("\"text\":\"").append(text.replace("\"", "\\\"")).append("\"");
-                // 如果有文本且后面还有有效的图片，则添加逗号
-                boolean hasValidImages = imageUrls != null
-                        && imageUrls.stream().anyMatch(url -> url != null && !url.trim().isEmpty());
-                if (hasValidImages) {
-                    requestBody.append(",");
-                }
+                contents.add(Map.of("text", text.trim()));
             }
 
-            // 添加图片内容
-            if (imageUrls != null && !imageUrls.isEmpty()) {
-                boolean firstImage = true;
-                for (int i = 0; i < imageUrls.size(); i++) {
-                    String imageUrl = imageUrls.get(i);
-                    // 只有当图片URL不为空时才添加
+            if (imageUrls != null) {
+                for (String imageUrl : imageUrls) {
                     if (imageUrl != null && !imageUrl.trim().isEmpty()) {
-                        if (!firstImage) {
-                            requestBody.append(",");
-                        }
-                        requestBody.append("\"image\":\"").append(imageUrl.replace("\"", "\\\"")).append("\"");
-                        firstImage = false;
+                        contents.add(Map.of("image", imageUrl.trim()));
                     }
                 }
             }
 
-            requestBody.append("}]");
-            requestBody.append("},");
-            requestBody.append("\"parameters\":{");
-            requestBody.append("\"dimension\":1024,");
-            requestBody.append("\"output_type\":\"dense\",");
-            requestBody.append("\"fps\":0.5");
-            requestBody.append("}}");
+            if (contents.isEmpty()) {
+                log.warn("生成多模态嵌入失败：缺少文本与图片输入");
+                return null;
+            }
 
-            String jsonBody = requestBody.toString();
+            Map<String, Object> requestMap = new LinkedHashMap<>();
+            requestMap.put("model", "qwen3-vl-embedding");
+            requestMap.put("input", Map.of("contents", contents));
+            requestMap.put("parameters", Map.of("dimension", 1024, "output_type", "dense", "fps", 0.5));
+
+            String jsonBody = objectMapper.writeValueAsString(requestMap);
             log.info("HTTP请求体（正确格式）: {}", jsonBody);
             // 构建HTTP请求
             HttpRequest request = HttpRequest.newBuilder()
