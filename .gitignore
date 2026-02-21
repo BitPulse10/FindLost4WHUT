@@ -38,3 +38,5 @@ uploads/
 docs/dev-ops/environment/.env
 tag设计.md
 uploads/
+.codex/
+verification.md
