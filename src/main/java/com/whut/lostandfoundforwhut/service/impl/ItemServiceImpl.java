@@ -16,11 +16,13 @@ import com.whut.lostandfoundforwhut.model.dto.ItemDTO;
 import com.whut.lostandfoundforwhut.model.dto.ItemFilterDTO;
 import com.whut.lostandfoundforwhut.model.dto.ItemTagNameDTO;
 import com.whut.lostandfoundforwhut.model.dto.SearchDTO;
+import com.whut.lostandfoundforwhut.model.entity.ImageSearch;
 import com.whut.lostandfoundforwhut.model.entity.Item;
 import com.whut.lostandfoundforwhut.model.entity.ItemTag;
 import com.whut.lostandfoundforwhut.model.entity.Tag;
 import com.whut.lostandfoundforwhut.model.entity.User;
 import com.whut.lostandfoundforwhut.model.vo.PageResultVO;
+import com.whut.lostandfoundforwhut.service.IImageSearchService;
 import com.whut.lostandfoundforwhut.service.IImageService;
 import com.whut.lostandfoundforwhut.service.IItemService;
 import com.whut.lostandfoundforwhut.service.ITagService;
@@ -77,6 +79,7 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
     private final ItemImageMapper itemImageMapper;
     private final ImageMapper imageMapper;
     private final IImageService imageService;
+    private final IImageSearchService imageSearchService;
     private final ITagService tagService;
     private final IVectorService vectorService;
 
@@ -635,7 +638,10 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
                 // 获取图片Url列表
                 List<String> imageUrls = new ArrayList<>();
                 if (imageIds != null && !imageIds.isEmpty()) {
-                    imageUrls = imageMapper.selectUrlsByIds(imageIds);
+                    List<ImageSearch> imageList = imageSearchService.listByIds(imageIds);
+                    imageUrls = imageList.stream()
+                            .map(ImageSearch::getUrl)
+                            .collect(Collectors.toList());
                 }
 
                 // 使用向量数据库搜索相似的物品ID

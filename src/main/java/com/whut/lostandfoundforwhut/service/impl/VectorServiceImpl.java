@@ -13,17 +13,13 @@ import org.springframework.stereotype.Service;
 import jakarta.annotation.PostConstruct;
 
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
+import java.util.stream.Collectors;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.net.URI;
 import java.time.Duration;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -88,142 +84,134 @@ public class VectorServiceImpl implements IVectorService {
      */
     private boolean isVectorExists(String itemId) {
         try {
-            // 优化：先获取集合大小，如果为0则直接返回false
-            if (getCollectionSize() == 0) {
-                return false;
-            }
+            // 直接尝试查询该ID，如果抛出异常或返回空则认为不存在
+            Embedding dummyEmbedding = Embedding.from(new float[1]);
+            List<EmbeddingMatch<TextSegment>> results = embeddingStore.findRelevant(dummyEmbedding, 1000);
 
-            // 使用一个简单的查询来检查是否存在该ID，减少查询范围以提升性能
-            Embedding dummyEmbedding = Embedding.from(new float[1024]);
-            List<EmbeddingMatch<TextSegment>> results = embeddingStore.findRelevant(dummyEmbedding, 10); // 减少查询数量
-
-            // 检查返回结果中是否包含指定ID
             return results.stream()
                     .map(EmbeddingMatch::embeddingId)
                     .anyMatch(id -> id.equals(itemId));
         } catch (Exception e) {
             log.debug("检查向量是否存在时出现异常: {}", itemId, e);
-            return false; // 出现异常时认为不存在
+            return false;
         }
     }
 
     @Override
     public void addImagesToVectorDatabase(Item item, List<String> imageUrls) {
+        // 空值检查
+        if (imageUrls == null || imageUrls.isEmpty()) {
+            log.debug("图片URL列表为空，跳过向量数据库添加");
+            return;
+        }
+
         try {
-            if (imageUrls != null && !imageUrls.isEmpty()) {
-                // 处理多模态嵌入：结合文本描述和所有图片信息
-                String itemDescription = item.getDescription() != null ? item.getDescription() : "";
+            checkInitialized();
 
-                // 为整个物品创建一个多模态嵌入，包含文本描述和所有图片
-                String itemId = "item_" + item.getId();
+            // 处理多模态嵌入：结合文本描述和所有图片信息
+            String itemDescription = item.getDescription() != null ? item.getDescription() : "";
+            String itemId = "item_" + item.getId();
 
-                // 创建多模态嵌入（文本+所有图片）
-                Embedding embedding = generateMultimodalEmbedding(itemDescription, imageUrls);
+            // 创建多模态嵌入（文本+所有图片）
+            Embedding embedding = generateMultimodalEmbedding(itemDescription, imageUrls);
+            if (embedding == null) {
+                log.warn("生成多模态嵌入失败，物品ID：{}", item.getId());
+                return;
+            }
 
-                if (embedding != null) {
-
-                    // 检查并删除已存在的ID（避免首次添加时的异常）
-                    if (isVectorExists(itemId)) {
-                        try {
-                            embeddingStore.removeAll(List.of(itemId));
-                            log.debug("已删除已存在的向量ID: {}", itemId);
-                        } catch (Exception e) {
-                            log.warn("删除已存在的向量ID失败: {}", itemId, e);
-                        }
-                    }
-
-                    try {
-                        embeddingStore.add(itemId, embedding);
-                        log.info("物品多模态信息已添加到向量数据库，物品ID：{}，图片数量：{}", item.getId(), imageUrls.size());
-                    } catch (Exception e) {
-                        log.error("添加向量数据失败，物品ID：{}", item.getId(), e);
-                        // 这里也不抛出异常，因为向量数据库的失败不应影响主业务流程
-                    }
+            // 检查并删除已存在的ID
+            if (isVectorExists(itemId)) {
+                try {
+                    embeddingStore.removeAll(List.of(itemId));
+                    log.debug("已删除已存在的向量ID: {}", itemId);
+                } catch (Exception e) {
+                    log.warn("删除已存在的向量ID失败: {}", itemId, e);
                 }
             }
+
+            embeddingStore.add(itemId, embedding);
+            log.info("物品多模态信息已添加到向量数据库，物品ID：{}，图片数量：{}", item.getId(), imageUrls.size());
+
         } catch (Exception e) {
             log.error("添加物品图片到向量数据库时发生异常，物品ID：{}", item.getId(), e);
-            // 这里不抛出异常，因为向量数据库的失败不应影响主业务流程
+            // 不抛出异常，因为向量数据库的失败不应影响主业务流程
         }
     }
 
     @Override
     public void updateVectorDatabase(Item item, List<String> imageUrls) {
         try {
+            checkInitialized();
+
             // 先删除旧的向量数据
             removeFromVectorDatabase(item.getId());
-
+            // 添加新的向量数据
             addImagesToVectorDatabase(item, imageUrls);
 
-            log.info("向量数据库中物品信息已更新，ID：{}，图片URLs：{}", item.getId(), imageUrls);
+            log.info("向量数据库中物品信息已更新，ID：{}，图片URLs：{}", item.getId(), imageUrls != null ? imageUrls.size() : 0);
         } catch (Exception e) {
-            log.error("更新向量数据库时发生异常，物品ID：{}，图片URLs：{}", item.getId(), imageUrls, e);
-            // 这里不抛出异常，因为向量数据库的失败不应影响主业务流程
+            log.error("更新向量数据库时发生异常，物品ID：{}", item.getId(), e);
+            // 不抛出异常，因为向量数据库的失败不应影响主业务流程
         }
     }
 
     @Override
     public void removeFromVectorDatabase(Long itemId) {
-        checkInitialized();
-
         try {
+            checkInitialized();
+
             String id = "item_" + itemId;
 
-            // 先检查向量是否存在，避免不必要的异常
-            if (isVectorExists(id)) {
-                try {
-                    embeddingStore.removeAll(List.of(id));
-                    log.info("向量数据库中物品信息已删除，ID：{}", itemId);
-                } catch (Exception e) {
-                    log.warn("删除向量条目失败，ID：{}", id, e);
-                }
-            } else {
-                log.debug("要删除的向量ID不存在: {}", id);
+            // 直接尝试删除，不预先检查存在性
+            try {
+                embeddingStore.removeAll(List.of(id));
+                log.info("向量数据库中物品信息已删除，ID：{}", itemId);
+            } catch (Exception e) {
+                log.debug("删除向量条目时出现异常（可能不存在），ID：{}，错误：{}", id, e.getMessage());
             }
         } catch (Exception e) {
             log.error("删除向量数据库条目时发生异常，物品ID：{}", itemId, e);
-            // 这里不抛出异常，因为向量数据库的失败不应影响主业务流程
+            // 不抛出异常，因为向量数据库的失败不应影响主业务流程
         }
     }
 
     @Override
     public List<String> searchInCollection(String query, List<String> imageUrls, int maxResults) {
-        checkInitialized();
-
         try {
-            // 检查查询文本和图片是否都为空
-            if ((query == null || query.trim().isEmpty()) &&
-                    (imageUrls == null || imageUrls.isEmpty())) {
-                log.warn("查询文本和图片都为空，返回空搜索结果");
-                return List.of();
-            }
+            checkInitialized();
 
-            // 如果只有查询文本为空但有图片，允许继续处理
-            if (query == null || query.trim().isEmpty()) {
-                log.info("查询文本为空，但有图片，进行纯图片搜索");
-                query = "";
-            }
-
+            // 参数验证
             if (maxResults <= 0) {
                 log.warn("搜索结果数量必须大于0，返回空搜索结果");
                 return List.of();
             }
 
-            Embedding queryEmbedding;
-            List<String> imageUrlsToSearch = new ArrayList<>();
-            // 只有当imageUrl不为空且不为空白字符串时才添加
-            if (imageUrls != null && !imageUrls.isEmpty()) {
-                imageUrlsToSearch.addAll(imageUrls);
-            }
-            queryEmbedding = generateMultimodalEmbedding(query, imageUrlsToSearch);
+            // 处理空查询
+            String searchQuery = (query == null || query.trim().isEmpty()) ? "" : query.trim();
+            List<String> searchImages = (imageUrls == null) ? new ArrayList<>()
+                    : imageUrls.stream().filter(url -> url != null && !url.trim().isEmpty())
+                            .collect(Collectors.toList());
 
+            // 检查是否都有有效内容
+            if (searchQuery.isEmpty() && searchImages.isEmpty()) {
+                log.warn("查询文本和图片都为空，返回空搜索结果");
+                return List.of();
+            }
+
+            // 生成查询嵌入向量
+            Embedding queryEmbedding = generateMultimodalEmbedding(searchQuery, searchImages);
+            if (queryEmbedding == null) {
+                log.warn("生成查询嵌入向量失败");
+                return List.of();
+            }
+
+            // 执行搜索
             List<EmbeddingMatch<TextSegment>> relevant = embeddingStore.findRelevant(queryEmbedding, maxResults);
+            List<String> results = relevant.stream()
+                    .map(EmbeddingMatch::embeddingId)
+                    .collect(Collectors.toList());
 
-            List<String> results = new ArrayList<>();
-            for (EmbeddingMatch<TextSegment> match : relevant) {
-                results.add(match.embeddingId());
-            }
-            log.info("向量搜索完成，查询：{}，图片URLs：{}，返回结果数量：{}", query, imageUrls, results.size());
+            log.info("向量搜索完成，查询：{}，图片数量：{}，返回结果数量：{}", searchQuery, searchImages.size(), results.size());
             return results;
         } catch (Exception e) {
             log.error("向量搜索失败，查询：{}，图片URLs：{}", query, imageUrls, e);
@@ -282,24 +270,20 @@ public class VectorServiceImpl implements IVectorService {
 
     @Override
     public void clearCollection() {
-        checkInitialized();
-
-        HttpClient client = HttpClient.newHttpClient();
-        String deleteUrl = chromaUrl + "/api/v1/collections/" + collectionName;
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(deleteUrl))
-                .DELETE()
-                .build();
-
         try {
-            HttpResponse<String> response = client.send(
-                    request,
-                    HttpResponse.BodyHandlers.ofString());
+            checkInitialized();
+
+            String deleteUrl = chromaUrl + "/api/v1/collections/" + collectionName;
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(deleteUrl))
+                    .DELETE()
+                    .build();
+
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
 
             if (response.statusCode() == 200) {
                 log.info("集合 {} 删除成功！", collectionName);
-
-                // 删除集合后重新初始化新的
+                // 删除集合后重新初始化
                 initializeCollection();
             } else {
                 log.error("删除失败，状态码：{}，响应：{}", response.statusCode(), response.body());
