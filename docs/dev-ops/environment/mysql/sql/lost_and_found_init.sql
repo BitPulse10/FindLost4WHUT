@@ -121,16 +121,23 @@ CREATE TABLE user_collect (
 -- ----------------------
 -- 索引补充
 -- ----------------------
-CREATE INDEX idx_items_type_status_event_time ON items(type, status, event_time);
-CREATE INDEX idx_items_is_deleted_status ON items(is_deleted, status);
+CREATE INDEX idx_items_is_deleted_created_at ON items(is_deleted, created_at);
+CREATE INDEX idx_items_is_deleted_type_status_created_at ON items(is_deleted, type, status, created_at);
+CREATE INDEX idx_items_user_id_type_created_at ON items(user_id, type, created_at);
 CREATE INDEX idx_item_tags_item_id ON item_tags(item_id);
 CREATE INDEX idx_item_tags_tag_id ON item_tags(tag_id);
 CREATE INDEX idx_item_tags_tag_item ON item_tags(tag_id, item_id);
 CREATE INDEX idx_item_images_item_id ON item_images(item_id);
 CREATE INDEX idx_item_images_image_id ON item_images(image_id);
 CREATE INDEX idx_image_search_expire_time ON image_search(expire_time);
+CREATE INDEX idx_user_collect_user_create_time ON user_collect(user_id, create_time);
+CREATE INDEX idx_user_collect_item_create_time ON user_collect(item_id, create_time);
 CREATE INDEX idx_users_email ON users(email);
 
+/*
+-- ----------------------
+-- 测试数据（已注释，默认不初始化）
+-- ----------------------
 INSERT INTO users (email, password_hash, nickname, status)
 VALUES
     ('user01@whut.edu.cn', '$2a$10$7EqJtq98hPqEX7fNZaFWoOeS2S3hYjzQ6lQq8KcQ5kYy1nE1M8y2m', '拾物同学01', 0),
@@ -144,7 +151,6 @@ VALUES
     ('user09@whut.edu.cn', '$2a$10$7EqJtq98hPqEX7fNZaFWoOeS2S3hYjzQ6lQq8KcQ5kYy1nE1M8y2m', '拾物同学09', 0),
     ('user10@whut.edu.cn', '$2a$10$7EqJtq98hPqEX7fNZaFWoOeS2S3hYjzQ6lQq8KcQ5kYy1nE1M8y2m', '拾物同学10', 0);
 
-
 -- 先清空 items 表（可选，避免重复插入）
 -- TRUNCATE TABLE items;
 
@@ -157,25 +163,21 @@ WITH RECURSIVE seq AS (
     UNION ALL
     SELECT n + 1 FROM seq WHERE n < 100
 ),
--- 临时表：获取 users 表的 ID 并编号（1-10）
                user_ids AS (
                    SELECT id, ROW_NUMBER() OVER (ORDER BY id) AS row_num
                    FROM users
-                   LIMIT 10 -- 只取前 10 个用户
+                   LIMIT 10
                )
 SELECT
-    -- 按行号匹配，确保 user_id 是 users 表中真实存在的 ID
     (SELECT id FROM user_ids WHERE row_num = ((n - 1) % 10) + 1) AS user_id,
     CASE
         WHEN n % 10 IN (0, 5, 9) THEN 2
         ELSE n % 2
-    END AS type, -- 0/1/2 区分挂失/招领/卡证
+    END AS type,
     DATE_SUB(NOW(), INTERVAL (n * 3) HOUR) AS event_time,
-    -- 随机取 8 个地点
     ELT(((n - 1) % 8) + 1, '南湖食堂', '鉴湖主楼', '图书馆', '西院操场', '梅苑宿舍', '东院教学楼', '北门快递点', '校医院') AS event_place,
     0 AS status,
     0 AS is_deleted,
-    -- 拼接描述信息
     CONCAT(
             CASE
                 WHEN n % 10 IN (0, 5, 9) THEN '卡证：'
@@ -190,9 +192,7 @@ SELECT
     DATE_SUB(NOW(), INTERVAL (n * 3 - 1) HOUR) AS updated_at
 FROM seq;
 
--- ----------------------
 -- 测试种子数据：随机100个标签
--- ----------------------
 INSERT INTO tags (name)
 WITH RECURSIVE seq_tag AS (
     SELECT 1 AS n
@@ -217,6 +217,7 @@ FROM items i
 UNION DISTINCT
 SELECT i.id, ((i.id + 42) % 100) + 1
 FROM items i;
+*/
 
 
 

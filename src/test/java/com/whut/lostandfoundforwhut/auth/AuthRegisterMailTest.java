@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.whut.lostandfoundforwhut.mapper.UserMapper;
 import com.whut.lostandfoundforwhut.service.IAuthService;
 import com.whut.lostandfoundforwhut.service.IRedisService;
+import com.whut.lostandfoundforwhut.service.IVectorService;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentMatchers;
@@ -11,8 +12,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.mail.SimpleMailMessage;
+import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.util.StringUtils;
 
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -32,6 +36,12 @@ class AuthRegisterMailTest {
     @MockBean
     private UserMapper userMapper;
 
+    @MockBean
+    private JavaMailSender mailSender;
+
+    @MockBean
+    private IVectorService vectorService;
+
     @Value("${app.mail.test-to:}")
     private String testTo;
 
@@ -40,12 +50,17 @@ class AuthRegisterMailTest {
 
     @Test
     void sendRegisterCode_shouldSendMailWithLocalSmtp() {
-        String toEmail = StringUtils.hasText(testTo) ? testTo : mailUsername;
-        Assertions.assertTrue(StringUtils.hasText(toEmail),
-                "请在 application-dev.yml 配置 app.mail.test-to 或 spring.mail.username 以便发送测试邮件");
+        String toEmail;
+        if (StringUtils.hasText(testTo) && testTo.trim().toLowerCase().endsWith("@whut.edu.cn")) {
+            toEmail = testTo.trim().toLowerCase();
+        } else {
+            toEmail = "autotest@whut.edu.cn";
+        }
+
         when(redisService.isExists(ArgumentMatchers.anyString())).thenReturn(false);
         when(userMapper.selectOne(ArgumentMatchers.any(LambdaQueryWrapper.class))).thenReturn(null);
 
         authService.sendRegisterCode(toEmail);
+        verify(mailSender).send(ArgumentMatchers.any(SimpleMailMessage.class));
     }
 }

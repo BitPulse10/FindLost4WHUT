@@ -48,6 +48,7 @@ app:
   vector-store:
     collection-name: item_image_vector
     chroma-url: http://127.0.0.1:8000
+    similarity-threshold: 0.62
   local-image:
     enabled: true
     location: file:/

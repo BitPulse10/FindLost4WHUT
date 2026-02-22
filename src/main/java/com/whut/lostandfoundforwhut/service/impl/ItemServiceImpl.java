@@ -399,6 +399,13 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
         LocalDateTime startTime = itemFilterDTO.getStartTime();
         LocalDateTime endTime = itemFilterDTO.getEndTime();
         String keyword = itemFilterDTO.getKeyword();
+        String eventPlace = itemFilterDTO.getEventPlace();
+        List<String> eventPlaceKeywords = StringUtils.hasText(eventPlace)
+                ? Arrays.stream(eventPlace.trim().split("\\s+"))
+                        .map(String::trim)
+                        .filter(StringUtils::hasText)
+                        .toList()
+                : List.of();
         // 类型筛选
         queryWrapper.eq(type != null, Item::getType, type);
 
@@ -412,6 +419,16 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
                 .like(Item::getDescription, keyword)
                 .or()
                 .like(Item::getEventPlace, keyword));
+        if (!eventPlaceKeywords.isEmpty()) {
+            queryWrapper.and(wrapper -> {
+                for (int i = 0; i < eventPlaceKeywords.size(); i++) {
+                    wrapper.like(Item::getEventPlace, eventPlaceKeywords.get(i));
+                    if (i < eventPlaceKeywords.size() - 1) {
+                        wrapper.or();
+                    }
+                }
+            });
+        }
 
         // 标签筛选
         if (itemFilterDTO.getTags() != null && !itemFilterDTO.getTags().isEmpty()) {
@@ -669,10 +686,44 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
     }
 
     @Override
+    public PageResultVO<String> listEventPlaces(String keyword, Integer pageNo, Integer pageSize) {
+        int normalizedPageNo = (pageNo == null || pageNo < 1) ? 1 : pageNo;
+        int normalizedPageSize = (pageSize == null || pageSize < 1) ? 20 : Math.min(pageSize, 100);
+        String normalizedKeyword = StringUtils.hasText(keyword) ? keyword.trim() : null;
+
+        LambdaQueryWrapper<Item> queryWrapper = new LambdaQueryWrapper<>();
+        queryWrapper.select(Item::getEventPlace)
+                .isNotNull(Item::getEventPlace)
+                .ne(Item::getEventPlace, "")
+                .like(StringUtils.hasText(normalizedKeyword), Item::getEventPlace, normalizedKeyword)
+                .groupBy(Item::getEventPlace)
+                .orderByAsc(Item::getEventPlace);
+
+        List<String> allPlaces = itemMapper.selectObjs(queryWrapper).stream()
+                .filter(String.class::isInstance)
+                .map(String.class::cast)
+                .map(String::trim)
+                .filter(StringUtils::hasText)
+                .distinct()
+                .toList();
+
+        int fromIndex = Math.min((normalizedPageNo - 1) * normalizedPageSize, allPlaces.size());
+        int toIndex = Math.min(fromIndex + normalizedPageSize, allPlaces.size());
+
+        PageResultVO<String> result = new PageResultVO<>();
+        result.setPageNo(normalizedPageNo);
+        result.setPageSize(normalizedPageSize);
+        result.setTotal(allPlaces.size());
+        result.setRecords(allPlaces.subList(fromIndex, toIndex));
+        return result;
+    }
+
+    @Override
     public List<Item> searchSimilarItems(String query, List<Long> imageIds, int maxResults) {
         try {
+            int normalizedMaxResults = Math.max(1, Math.min(maxResults, 10));
             // 创建 DTO
-            SearchDTO searchDTO = new SearchDTO(query, imageIds, maxResults);
+            SearchDTO searchDTO = new SearchDTO(query, imageIds, normalizedMaxResults);
             String redisKey = searchDTO.toRedisKey();
 
             // 尝试从 Redis 获取缓存
@@ -702,7 +753,7 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper, Item> implements II
                 }
 
                 // 使用向量数据库搜索相似的物品ID
-                List<String> similarItemIds = vectorService.searchInCollection(query, imageUrls, maxResults);
+                List<String> similarItemIds = vectorService.searchInCollection(query, imageUrls, normalizedMaxResults);
                 log.info("向量服务返回的ID列表: {}", similarItemIds);
                 log.info("向量服务返回ID数量: {}", similarItemIds.size());
 

@@ -71,4 +71,14 @@ public interface IItemService extends IService<Item> {
      * @return 分页结果
      */
     PageResultVO<Item> listMyItems(Long userId, Integer pageNo, Integer pageSize, Integer type, String keyword);
+
+    /**
+     * 查询地点候选列表（去重后分页）
+     *
+     * @param keyword  关键词（可空）
+     * @param pageNo   页码
+     * @param pageSize 每页数量
+     * @return 分页地点列表
+     */
+    PageResultVO<String> listEventPlaces(String keyword, Integer pageNo, Integer pageSize);
 }

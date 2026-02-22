@@ -21,6 +21,7 @@ public enum ResponseCode {
     NO_PERMISSION("0004", "无权限"),
     RESOURCE_NOT_FOUND("0005", "资源不存在"),
     DUPLICATE_OPERATION("0006", "重复操作"),
+    RATE_LIMITED("0007", "你的操作太快了，请稍等一下再试"),
 
     USER_NOT_FOUND("USR_001", "用户不存在"),
     USER_STATUS_INVALID("USR_002", "用户状态无效"),

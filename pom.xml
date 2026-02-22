@@ -177,6 +177,13 @@
           <artifactId>cos_api</artifactId>
           <version>5.6.247</version>
         </dependency>
+        <!-- 腾讯云验证码官方 SDK -->
+        <dependency>
+            <groupId>com.tencentcloudapi</groupId>
+            <artifactId>tencentcloud-sdk-java</artifactId>
+            <version>3.1.1144</version>
+        </dependency>
+
 
         <!-- Flyway 数据库迁移工具 -->
         <dependency>

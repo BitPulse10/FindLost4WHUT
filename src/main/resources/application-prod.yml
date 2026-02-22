@@ -2,11 +2,13 @@ spring:
   config:
     activate:
       on-profile: prod
+  flyway:
+    enabled: false
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://127.0.0.1:3306/Lost_And_Find?useUnicode=true&characterEncoding=utf8&autoReconnect=true&zeroDateTimeBehavior=convertToNull&serverTimezone=Asia/Shanghai&useSSL=false
-    username: root
-    password: 123456
+    url: jdbc:mysql://${MYSQL_HOST:mysql}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:Lost_And_Find}?useUnicode=true&characterEncoding=utf8&autoReconnect=true&zeroDateTimeBehavior=convertToNull&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: ${MYSQL_USERNAME:root}
+    password: ${MYSQL_ROOT_PASSWORD}
     type: com.zaxxer.hikari.HikariDataSource
     hikari:
       pool-name: LostAndFoundHikariCP
@@ -19,9 +21,9 @@ spring:
       connection-test-query: SELECT 1
   data:
     redis:
-      host: 127.0.0.1
-      port: 6379
-      password: 123456
+      host: ${REDIS_HOST:redis}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD}
       timeout: 5s
       lettuce:
         pool:
@@ -30,17 +32,72 @@ spring:
           min-idle: 0
           max-wait: 1s
   mail:
-    host: smtp.qq.com
-    port: 587
-    username: bitpulse@foxmail.com
-    password: gsnkkrvuiuivcbbh
+    host: ${MAIL_HOST:smtp.qq.com}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME}
+    password: ${MAIL_PASSWORD}
     properties:
       mail:
         smtp:
           auth: true
           starttls:
+            enable: false
+          ssl:
             enable: true
 
 app:
   mail:
-    from: bitpulse@foxmail.com
+    from: ${APP_MAIL_FROM:${MAIL_USERNAME}}
+  vector-store:
+    collection-name: ${VECTOR_COLLECTION_NAME:item_image_vector}
+    chroma-url: ${VECTOR_CHROMA_URL:http://chromadb:8000}
+    similarity-threshold: ${VECTOR_SIMILARITY_THRESHOLD:0.62}
+  local-image:
+    enabled: false
+  security:
+    enabled: true
+  rate-limit:
+    enabled: true
+    default-window-seconds: 60
+    default-limit: 90
+    default-key-type: USER
+    rules:
+      - path-pattern: /api/auth/login
+        window-seconds: 60
+        limit: 6
+        key-type: IP
+      - path-pattern: /api/auth/register/code
+        window-seconds: 60
+        limit: 2
+        key-type: IP
+      - path-pattern: /api/auth/password/code
+        window-seconds: 60
+        limit: 2
+        key-type: IP
+      - path-pattern: /api/image-search/upload
+        window-seconds: 60
+        limit: 4
+        key-type: USER
+      - path-pattern: /api/items/filter
+        window-seconds: 60
+        limit: 30
+        key-type: USER
+      - path-pattern: /api/images/upload
+        window-seconds: 60
+        limit: 8
+        key-type: USER
+
+ai:
+  ali:
+    api-key: ${ALI_VECTOR_API_KEY:}
+
+tencent:
+  cloud:
+    captcha:
+      enabled: ${TENCENT_CAPTCHA_ENABLED:true}
+
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false

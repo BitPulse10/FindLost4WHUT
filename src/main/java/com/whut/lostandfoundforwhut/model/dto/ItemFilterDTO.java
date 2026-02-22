@@ -39,5 +39,8 @@ public class ItemFilterDTO {
     // 关键词筛选（匹配描述和地点）
     private String keyword;
 
+    // 地点筛选（独立于关键词）
+    private String eventPlace;
+
     private SearchDTO searchDTO;
 }

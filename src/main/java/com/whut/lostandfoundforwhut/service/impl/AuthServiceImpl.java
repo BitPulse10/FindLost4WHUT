@@ -42,9 +42,9 @@ import java.util.concurrent.ThreadLocalRandom;
 @RequiredArgsConstructor
 public class AuthServiceImpl implements IAuthService {
 
-    private static final Duration REGISTER_CODE_TTL = Duration.ofSeconds(90);
+    private static final Duration REGISTER_CODE_TTL = Duration.ofMinutes(5);
     private static final Duration REGISTER_CODE_RATE_TTL = Duration.ofSeconds(60);
-    private static final Duration PASSWORD_RESET_CODE_TTL = Duration.ofSeconds(90);
+    private static final Duration PASSWORD_RESET_CODE_TTL = Duration.ofMinutes(5);
     private static final Duration PASSWORD_RESET_CODE_RATE_TTL = Duration.ofSeconds(60);
     private static final Duration LOGIN_FAIL_WINDOW = Duration.ofMinutes(5);
     private static final Duration LOGIN_LOCK_TTL = Duration.ofMinutes(5);

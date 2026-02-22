@@ -1,5 +1,6 @@
 package com.whut.lostandfoundforwhut.config;
 
+import com.whut.lostandfoundforwhut.common.filter.ApiRateLimitFilter;
 import com.whut.lostandfoundforwhut.common.utils.security.jwt.JwtAuthenticationFilter;
 import com.whut.lostandfoundforwhut.common.utils.security.jwt.JwtUtil;
 import jakarta.annotation.Resource;
@@ -8,6 +9,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
@@ -17,7 +19,6 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
-import lombok.extern.slf4j.Slf4j;
 
 /**
  * @author DXR
@@ -38,7 +39,8 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http,
             @Value("${app.security.enabled:true}") boolean securityEnabled,
-            JwtAuthenticationFilter jwtAuthenticationFilter)
+            JwtAuthenticationFilter jwtAuthenticationFilter,
+            ApiRateLimitFilter apiRateLimitFilter)
             throws Exception {
         // 基础配置：关闭 CSRF，前后端分离场景必备
         http.csrf(AbstractHttpConfigurer::disable);
@@ -61,7 +63,9 @@ public class SecurityConfig {
                         // 其余所有请求都需要认证
                         .anyRequest().authenticated())
                 // 添加 JWT 过滤器，在用户名密码过滤器之前执行
-                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
+                // 在 JWT 解析完成后执行限流，优先按用户维度限流
+                .addFilterAfter(apiRateLimitFilter, JwtAuthenticationFilter.class);
 
         return http.build();
     }

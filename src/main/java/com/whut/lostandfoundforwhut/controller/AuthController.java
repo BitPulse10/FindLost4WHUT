@@ -13,12 +13,15 @@ import com.whut.lostandfoundforwhut.model.entity.User;
 import com.whut.lostandfoundforwhut.model.vo.AuthLoginResult;
 import com.whut.lostandfoundforwhut.model.vo.UserVO;
 import com.whut.lostandfoundforwhut.service.IAuthService;
+import com.whut.lostandfoundforwhut.service.ICaptchaVerifyService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -31,6 +34,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthController {
 
     private final IAuthService authService;
+    private final ICaptchaVerifyService captchaVerifyService;
     private final JwtUtil jwtUtil;
 
     @Value("${app.jwt.refresh-expiration-ms}")
@@ -46,7 +50,12 @@ public class AuthController {
             @ApiResponse(responseCode = "MAIL_001", description = "邮箱配置缺失或无效"),
             @ApiResponse(responseCode = "MAIL_002", description = "邮件发送失败")
     })
-    public Result<Boolean> sendRegisterCode(@RequestBody RegisterCodeSendDTO dto) {
+    public Result<Boolean> sendRegisterCode(@RequestBody RegisterCodeSendDTO dto, HttpServletRequest request) {
+        captchaVerifyService.verifyOrThrow(
+                dto == null ? null : dto.getCaptchaTicket(),
+                dto == null ? null : dto.getCaptchaRandstr(),
+                resolveClientIp(request),
+                "register_code");
         authService.sendRegisterCode(dto == null ? null : dto.getEmail());
         return Result.success(true);
     }
@@ -74,7 +83,12 @@ public class AuthController {
             @ApiResponse(responseCode = "USR_007", description = "邮箱或密码错误"),
             @ApiResponse(responseCode = "USR_008", description = "登录失败次数过多，请5分钟后再试")
     })
-    public Result<UserVO> login(@RequestBody UserLoginDTO dto) {
+    public Result<UserVO> login(@RequestBody UserLoginDTO dto, HttpServletRequest request) {
+        captchaVerifyService.verifyOrThrow(
+                dto == null ? null : dto.getCaptchaTicket(),
+                dto == null ? null : dto.getCaptchaRandstr(),
+                resolveClientIp(request),
+                "login");
         AuthLoginResult result = authService.login(dto);
         UserVO vo = UserVO.from(result.getUser(), result.getToken());
         vo.setExpiresIn(jwtUtil.getExpirationMs());
@@ -93,7 +107,12 @@ public class AuthController {
             @ApiResponse(responseCode = "MAIL_001", description = "邮箱配置缺失或无效"),
             @ApiResponse(responseCode = "MAIL_002", description = "邮件发送失败")
     })
-    public Result<Boolean> sendPasswordResetCode(@RequestBody PasswordResetCodeSendDTO dto) {
+    public Result<Boolean> sendPasswordResetCode(@RequestBody PasswordResetCodeSendDTO dto, HttpServletRequest request) {
+        captchaVerifyService.verifyOrThrow(
+                dto == null ? null : dto.getCaptchaTicket(),
+                dto == null ? null : dto.getCaptchaRandstr(),
+                resolveClientIp(request),
+                "password_code");
         authService.sendPasswordResetCode(dto == null ? null : dto.getEmail());
         return Result.success(true);
     }
@@ -142,5 +161,20 @@ public class AuthController {
     public Result<Boolean> logout(@RequestBody RefreshTokenDTO dto) {
         authService.logout(dto == null ? null : dto.getRefreshToken());
         return Result.success(true);
+    }
+
+    private String resolveClientIp(HttpServletRequest request) {
+        String xForwardedFor = request.getHeader("X-Forwarded-For");
+        if (StringUtils.hasText(xForwardedFor)) {
+            String[] ipList = xForwardedFor.split(",");
+            if (ipList.length > 0 && StringUtils.hasText(ipList[0])) {
+                return ipList[0].trim();
+            }
+        }
+        String realIp = request.getHeader("X-Real-IP");
+        if (StringUtils.hasText(realIp)) {
+            return realIp.trim();
+        }
+        return request.getRemoteAddr();
     }
 }

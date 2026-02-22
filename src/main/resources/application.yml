@@ -1,6 +1,7 @@
 spring:
   config:
     import:
+      - optional:file:.env[.properties]
       - optional:file:docs/dev-ops/environment/.env[.properties]
   servlet:
     multipart:
@@ -13,7 +14,7 @@ spring:
     active: dev
   # Flyway 数据库迁移配置
   flyway:
-    enabled: true
+    enabled: false
     baseline-on-migrate: true
     locations: classpath:db/migration
 
@@ -30,6 +31,41 @@ app:
   upload:
     # 业务层图片大小校验（ImageServiceImpl 使用）
     max-file-size: 5MB # COS 限制 5MB
+  rate-limit:
+    enabled: true
+    default-window-seconds: 60
+    default-limit: 120
+    default-key-type: USER
+    exclude-prefixes:
+      - /swagger-ui
+      - /v3/api-docs
+      - /error
+      - /dev-local-images
+    rules:
+      - path-pattern: /api/auth/login
+        window-seconds: 60
+        limit: 8
+        key-type: IP
+      - path-pattern: /api/auth/register/code
+        window-seconds: 60
+        limit: 3
+        key-type: IP
+      - path-pattern: /api/auth/password/code
+        window-seconds: 60
+        limit: 3
+        key-type: IP
+      - path-pattern: /api/image-search/upload
+        window-seconds: 60
+        limit: 6
+        key-type: USER
+      - path-pattern: /api/items/filter
+        window-seconds: 60
+        limit: 60
+        key-type: USER
+      - path-pattern: /api/images/upload
+        window-seconds: 60
+        limit: 12
+        key-type: USER
 
 mybatis-plus:
   mapper-locations: classpath*:mapper/**/*.xml
@@ -54,6 +90,16 @@ tencent:
     secret-key: ${TENCENT_COS_SECRET_KEY}
     bucket-name: ${TENCENT_COS_BUCKET_NAME}
     region: ${TENCENT_COS_REGION}
+  cloud:
+    secret-id: ${TENCENT_CLOUD_SECRET_ID:}
+    secret-key: ${TENCENT_CLOUD_SECRET_KEY:}
+    captcha:
+      enabled: ${TENCENT_CAPTCHA_ENABLED:false}
+      app-id: ${TENCENT_CAPTCHA_APP_ID:0}
+      app-secret-key: ${TENCENT_CAPTCHA_APP_SECRET_KEY:}
+      type: ${TENCENT_CAPTCHA_TYPE:9}
+      region: ${TENCENT_CAPTCHA_REGION:ap-guangzhou}
+      allow-disaster-ticket: ${TENCENT_CAPTCHA_ALLOW_DISASTER_TICKET:true}
 
 scheduling:
   task:

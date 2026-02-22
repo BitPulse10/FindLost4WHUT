@@ -43,6 +43,9 @@ public class VectorServiceImpl implements IVectorService {
     @Value("${ai.ali.api-key:}")
     private String dashScopeApiKey;
 
+    @Value("${app.vector-store.similarity-threshold:0.62}")
+    private double similarityThreshold;
+
     private ChromaEmbeddingStore embeddingStore;
     private boolean initialized = false; // 标记是否已初始化
     private HttpClient httpClient;
@@ -182,11 +185,7 @@ public class VectorServiceImpl implements IVectorService {
         try {
             checkInitialized();
 
-            // 参数验证
-            if (maxResults <= 0) {
-                log.warn("搜索结果数量必须大于0，返回空搜索结果");
-                return List.of();
-            }
+            int normalizedMaxResults = Math.max(1, Math.min(maxResults, 10));
 
             // 处理空查询
             String searchQuery = (query == null || query.trim().isEmpty()) ? "" : query.trim();
@@ -208,12 +207,14 @@ public class VectorServiceImpl implements IVectorService {
             }
 
             // 执行搜索
-            List<EmbeddingMatch<TextSegment>> relevant = embeddingStore.findRelevant(queryEmbedding, maxResults);
+            List<EmbeddingMatch<TextSegment>> relevant = embeddingStore.findRelevant(queryEmbedding, normalizedMaxResults);
             List<String> results = relevant.stream()
+                    .filter(match -> match.score() >= similarityThreshold)
                     .map(EmbeddingMatch::embeddingId)
                     .collect(Collectors.toList());
 
-            log.info("向量搜索完成，查询：{}，图片数量：{}，返回结果数量：{}", searchQuery, searchImages.size(), results.size());
+            log.info("向量搜索完成，查询：{}，图片数量：{}，请求结果数：{}，阈值：{}，实际返回：{}",
+                    searchQuery, searchImages.size(), normalizedMaxResults, similarityThreshold, results.size());
             return results;
         } catch (Exception e) {
             log.error("向量搜索失败，查询：{}，图片URLs：{}", query, imageUrls, e);

@@ -3,7 +3,6 @@ CREATE TABLE IF NOT EXISTS image_search (
     id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '自增主键',
     url VARCHAR(500) NOT NULL COMMENT '图片访问URL',
     object_key VARCHAR(500) UNIQUE NOT NULL COMMENT '图片对象键（唯一）',
-    user_id BIGINT NOT NULL COMMENT '上传用户ID',
     create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     expire_time DATETIME NOT NULL COMMENT '过期时间'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='图搜临时图片表';
@@ -41,20 +40,3 @@ SET @sql_add_idx_expire = IFNULL(@sql_add_idx_expire, 'SELECT 1');
 PREPARE stmt_add_idx_expire FROM @sql_add_idx_expire;
 EXECUTE stmt_add_idx_expire;
 DEALLOCATE PREPARE stmt_add_idx_expire;
-
--- 创建用户+创建时间复合索引（如不存在）
-SET @sql_add_idx_user_create = (
-    SELECT 'CREATE INDEX idx_image_search_user_create ON image_search(user_id, create_time)'
-    WHERE NOT EXISTS (
-        SELECT 1
-        FROM INFORMATION_SCHEMA.STATISTICS
-        WHERE TABLE_SCHEMA = DATABASE()
-          AND TABLE_NAME = 'image_search'
-          AND INDEX_NAME = 'idx_image_search_user_create'
-    )
-    LIMIT 1
-);
-SET @sql_add_idx_user_create = IFNULL(@sql_add_idx_user_create, 'SELECT 1');
-PREPARE stmt_add_idx_user_create FROM @sql_add_idx_user_create;
-EXECUTE stmt_add_idx_user_create;
-DEALLOCATE PREPARE stmt_add_idx_user_create;

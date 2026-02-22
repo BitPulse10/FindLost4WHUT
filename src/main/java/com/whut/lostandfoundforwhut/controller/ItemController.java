@@ -125,6 +125,23 @@ public class ItemController {
         }
     }
 
+    @GetMapping("/places")
+    @Operation(summary = "查询地点候选", description = "从物品事件地点中去重查询地点候选，支持关键词和分页")
+    public Result<PageResultVO<String>> listEventPlaces(
+            @Parameter(description = "关键词（匹配地点）") @RequestParam(required = false) String q,
+            @Parameter(description = "页码，从1开始") @RequestParam(defaultValue = "1") Integer pageNo,
+            @Parameter(description = "每页数量，最大100") @RequestParam(defaultValue = "20") Integer pageSize) {
+        try {
+            PageResultVO<String> result = itemService.listEventPlaces(q, pageNo, pageSize);
+            return Result.success(result);
+        } catch (AppException e) {
+            return Result.fail(e.getCode(), e.getInfo());
+        } catch (Exception e) {
+            log.error("查询地点候选失败，q={}, pageNo={}, pageSize={}", q, pageNo, pageSize, e);
+            return Result.fail(ResponseCode.UN_ERROR.getCode(), "查询地点候选失败：" + e.getMessage());
+        }
+    }
+
     @GetMapping("/me")
     @Operation(summary = "查询我的物品", description = "查询当前登录用户发布的物品，支持按类型、关键词筛选与分页")
     public Result<PageResultVO<Item>> listMyItems(
